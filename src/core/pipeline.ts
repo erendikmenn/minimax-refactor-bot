@@ -103,6 +103,48 @@ const timestampForBranch = (): string => {
   return iso.replace(/[-:T]/g, "").slice(0, 14);
 };
 
+const normalizePatchedPath = (value: string): string => {
+  const trimmed = value.trim();
+  if (trimmed === "/dev/null") {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("a/") || trimmed.startsWith("b/")) {
+    return trimmed.slice(2);
+  }
+
+  return trimmed;
+};
+
+const extractPatchedFiles = (patch: string): string[] => {
+  const files = new Set<string>();
+  const lines = patch.split("\n");
+
+  for (const line of lines) {
+    if (line.startsWith("diff --git ")) {
+      const parts = line.split(" ");
+      const right = parts[3];
+      if (right) {
+        const normalized = normalizePatchedPath(right);
+        if (normalized !== "/dev/null") {
+          files.add(normalized);
+        }
+      }
+      continue;
+    }
+
+    if (line.startsWith("+++ ")) {
+      const file = line.slice(4);
+      const normalized = normalizePatchedPath(file);
+      if (normalized !== "/dev/null") {
+        files.add(normalized);
+      }
+    }
+  }
+
+  return [...files];
+};
+
 const buildPrBody = (files: string[], context: { baseSha: string; headSha: string }): string => {
   const list = files.length > 0 ? files.map((file) => `- ${file}`).join("\n") : "- (none)";
 
@@ -188,6 +230,15 @@ export class RefactorPipeline {
 
         while (true) {
           try {
+            const touchedFiles = extractPatchedFiles(currentPatch);
+            const unauthorizedFiles = touchedFiles.filter((file) => !generated.chunk.files.includes(file));
+
+            if (unauthorizedFiles.length > 0) {
+              throw new Error(
+                `Patch touched files outside chunk scope: ${unauthorizedFiles.join(", ")}`
+              );
+            }
+
             await applyEngine.applyUnifiedDiff(currentPatch);
             break;
           } catch (error) {

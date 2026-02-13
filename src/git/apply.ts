@@ -17,8 +17,8 @@ export class GitApplyEngine {
 
     try {
       await writeFile(patchPath, `${patch.trimEnd()}\n`, "utf8");
-      await this.executor.run("git", ["apply", "--check", "--index", "--3way", "--recount", patchPath]);
-      await this.executor.run("git", ["apply", "--index", "--3way", "--recount", patchPath]);
+      await this.executor.run("git", ["apply", "--check", "--index", "--recount", patchPath]);
+      await this.executor.run("git", ["apply", "--index", "--recount", patchPath]);
     } catch (error) {
       if (error instanceof CommandExecutionError) {
         throw new Error(

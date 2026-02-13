@@ -196,4 +196,57 @@ describe("RefactorPipeline", () => {
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
     expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
+
+  it("repairs patch when model touches files outside chunk scope", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+
+    generate.mockResolvedValueOnce({
+      patches: [
+        {
+          patch: [
+            "diff --git a/src/other.ts b/src/other.ts",
+            "--- a/src/other.ts",
+            "+++ b/src/other.ts",
+            "@@ -1 +1 @@",
+            "-const b=1;",
+            "+const b = 1;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
+      ],
+      skippedChunks: 0
+    });
+
+    repairPatch.mockResolvedValueOnce(
+      [
+        "diff --git a/src/index.ts b/src/index.ts",
+        "--- a/src/index.ts",
+        "+++ b/src/index.ts",
+        "@@ -1 +1 @@",
+        "-const a=1;",
+        "+const a = 1;"
+      ].join("\n")
+    );
+    applyPatch.mockResolvedValue(undefined);
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result.status).toBe("created");
+    expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(applyPatch).toHaveBeenCalledTimes(1);
+  });
 });
