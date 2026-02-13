@@ -2,6 +2,7 @@ import type { BotConfig } from "./config.js";
 import type { CommandExecutor } from "../utils/exec.js";
 import type { Logger } from "../utils/logger.js";
 import type { DiffChunk } from "../git/diff.js";
+import { assessPatchBehaviorRisk } from "./behavior-guard.js";
 
 export interface DiffExtractor {
   resolveRangeFromEvent(eventPath?: string): Promise<{ baseSha: string; headSha: string }>;
@@ -224,11 +225,13 @@ export class RefactorPipeline {
     }
 
     try {
+      let appliedPatchCount = 0;
       for (const generated of patchResult.patches) {
         let currentPatch = generated.patch;
-        let attempt = 0;
+        let applySucceeded = false;
+        let lastError = "";
 
-        while (true) {
+        for (let attempt = 0; attempt <= config.patchRepairAttempts; attempt += 1) {
           try {
             const touchedFiles = extractPatchedFiles(currentPatch);
             const unauthorizedFiles = touchedFiles.filter((file) => !generated.chunk.files.includes(file));
@@ -239,20 +242,28 @@ export class RefactorPipeline {
               );
             }
 
-            await applyEngine.applyUnifiedDiff(currentPatch);
-            break;
-          } catch (error) {
-            const applyError = error instanceof Error ? error.message : String(error);
-
-            if (attempt >= config.patchRepairAttempts) {
-              throw error;
+            if (config.behaviorGuardMode === "strict") {
+              const guard = assessPatchBehaviorRisk(currentPatch);
+              if (!guard.safe) {
+                throw new Error(`Behavior guard blocked patch: ${guard.reasons.join("; ")}`);
+              }
             }
 
-            attempt += 1;
+            await applyEngine.applyUnifiedDiff(currentPatch);
+            applySucceeded = true;
+            appliedPatchCount += 1;
+            break;
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+
+            if (attempt === config.patchRepairAttempts) {
+              break;
+            }
+
             logger.warn("Patch apply failed, requesting repair patch", {
-              attempt,
+              attempt: attempt + 1,
               maxAttempts: config.patchRepairAttempts,
-              applyError
+              applyError: lastError
             });
 
             const repairedPatch = await patchGenerator.repairPatch({
@@ -261,16 +272,31 @@ export class RefactorPipeline {
               headRef: diffContext.headSha,
               chunk: generated.chunk,
               failedPatch: currentPatch,
-              applyError
+              applyError: lastError
             });
 
             if (!repairedPatch) {
-              throw new Error("MiniMax repair did not produce a patch");
+              lastError = "MiniMax repair did not produce a patch";
+              break;
             }
 
             currentPatch = repairedPatch;
           }
         }
+
+        if (!applySucceeded) {
+          if (lastError.startsWith("Behavior guard blocked patch") || lastError === "MiniMax repair did not produce a patch") {
+            logger.info("Skipping patch after behavior guard/retry evaluation", { reason: lastError });
+            continue;
+          }
+
+          throw new Error(lastError || "Patch apply failed");
+        }
+      }
+
+      if (appliedPatchCount === 0) {
+        logger.info("No patches were applied after behavior guard and repair attempts");
+        return { status: "skipped", reason: "no_patch" };
       }
     } catch (error) {
       logger.warn("Patch application failed, skipping PR creation", {

@@ -12,6 +12,7 @@ export interface BotConfig {
   eventPath: string | undefined;
   maxRetries: number;
   patchRepairAttempts: number;
+  behaviorGuardMode: "strict" | "off";
   testCommand: string;
 }
 
@@ -57,6 +58,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     eventPath: env.GITHUB_EVENT_PATH,
     maxRetries: parsePositiveInt("MAX_RETRIES", env.MAX_RETRIES, 2),
     patchRepairAttempts: parsePositiveInt("PATCH_REPAIR_ATTEMPTS", env.PATCH_REPAIR_ATTEMPTS, 2),
+    behaviorGuardMode: env.BEHAVIOR_GUARD_MODE === "off" ? "off" : "strict",
     testCommand: env.TEST_COMMAND?.trim() || "npm test"
   };
 
@@ -66,6 +68,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     maxFilesPerChunk: config.maxFilesPerChunk,
     timeoutMs: config.timeoutMs,
     patchRepairAttempts: config.patchRepairAttempts,
+    behaviorGuardMode: config.behaviorGuardMode,
     repository: config.repository,
     baseBranch: config.baseBranch
   });

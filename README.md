@@ -87,6 +87,7 @@ Optional:
 - `TIMEOUT_MS` (default: `60000`)
 - `MAX_RETRIES` (default: `2`)
 - `PATCH_REPAIR_ATTEMPTS` (default: `2`)
+- `BEHAVIOR_GUARD_MODE` (`strict` by default, set `off` to disable)
 - `TEST_COMMAND` (default: `npm test`)
 
 ### Connect to a Repository
@@ -165,6 +166,7 @@ Opsiyonel:
 - `TIMEOUT_MS` (varsayılan: `60000`)
 - `MAX_RETRIES` (varsayılan: `2`)
 - `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
+- `BEHAVIOR_GUARD_MODE` (varsayılan `strict`, kapatmak için `off`)
 - `TEST_COMMAND` (varsayılan: `npm test`)
 
 ### Repoya Bağlama

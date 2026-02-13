@@ -15,6 +15,7 @@ const baseConfig: BotConfig = {
   eventPath: "/tmp/event.json",
   maxRetries: 1,
   patchRepairAttempts: 2,
+  behaviorGuardMode: "strict",
   testCommand: "npm test"
 };
 
@@ -182,7 +183,7 @@ describe("RefactorPipeline", () => {
     expect(deps.prCreator.create).toHaveBeenCalledTimes(1);
   });
 
-  it("returns patch_apply_failure when apply fails and repair cannot recover", async () => {
+  it("skips patch when apply fails and repair returns no replacement patch", async () => {
     const deps = buildDependencies();
     const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
     const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
@@ -193,8 +194,34 @@ describe("RefactorPipeline", () => {
     const pipeline = new RefactorPipeline(deps);
     const result = await pipeline.run();
 
-    expect(result).toEqual({ status: "skipped", reason: "patch_apply_failure" });
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
     expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
+  it("returns patch_apply_failure when apply keeps failing even after repair patch", async () => {
+    const deps = buildDependencies();
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+
+    applyPatch.mockRejectedValue(new Error("Failed to apply patch with git apply: corrupt patch"));
+    repairPatch.mockResolvedValue(
+      [
+        "diff --git a/src/index.ts b/src/index.ts",
+        "--- a/src/index.ts",
+        "+++ b/src/index.ts",
+        "@@ -1 +1 @@",
+        "-const a=1;",
+        "+const a = 1;"
+      ].join("\n")
+    );
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "patch_apply_failure" });
+    expect(repairPatch).toHaveBeenCalledTimes(2);
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
     expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
@@ -278,5 +305,49 @@ describe("RefactorPipeline", () => {
     expect(result.status).toBe("created");
     expect(repairPatch).toHaveBeenCalledTimes(1);
     expect(applyPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips source patch when behavior guard rejects semantic token changes", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+
+    generate.mockResolvedValueOnce({
+      patches: [
+        {
+          patch: [
+            "diff --git a/src/index.ts b/src/index.ts",
+            "--- a/src/index.ts",
+            "+++ b/src/index.ts",
+            "@@ -1 +1 @@",
+            "-const a=1;",
+            "+const a=2;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
+      ],
+      skippedChunks: 0
+    });
+    repairPatch.mockResolvedValue(null);
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(applyPatch).not.toHaveBeenCalled();
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
   });
 });
