@@ -5,6 +5,10 @@ import { CommandExecutionError, type CommandExecutor } from "../utils/exec.js";
 export interface DiffChunk {
   files: string[];
   diff: string;
+  snapshots: Array<{
+    path: string;
+    content: string;
+  }>;
 }
 
 export interface DiffContext {
@@ -92,6 +96,7 @@ export class GitDiffExtractor {
     const chunks: DiffChunk[] = [];
     let currentDiff = "";
     let currentFiles: string[] = [];
+    let currentSnapshots: Array<{ path: string; content: string }> = [];
 
     for (const file of files) {
       const fileDiff = await this.executor.run("git", ["diff", "--unified=3", baseSha, headSha, "--", file]);
@@ -104,17 +109,20 @@ export class GitDiffExtractor {
       const fileLimitReached = currentFiles.length >= this.maxFilesPerChunk && currentDiff.length > 0;
 
       if (chunkWouldOverflow || fileLimitReached) {
-        chunks.push({ files: currentFiles, diff: currentDiff.trimEnd() });
+        chunks.push({ files: currentFiles, diff: currentDiff.trimEnd(), snapshots: currentSnapshots });
         currentDiff = "";
         currentFiles = [];
+        currentSnapshots = [];
       }
 
+      const snapshot = await this.readHeadFileSnapshot(file);
       currentDiff += `${fileDiff.trimEnd()}\n`;
       currentFiles.push(file);
+      currentSnapshots.push({ path: file, content: snapshot });
     }
 
     if (currentDiff.trim()) {
-      chunks.push({ files: currentFiles, diff: currentDiff.trimEnd() });
+      chunks.push({ files: currentFiles, diff: currentDiff.trimEnd(), snapshots: currentSnapshots });
     }
 
     if (chunks.length === 0) {
@@ -128,5 +136,13 @@ export class GitDiffExtractor {
     }
 
     return chunks;
+  }
+
+  private async readHeadFileSnapshot(file: string): Promise<string> {
+    try {
+      return await this.executor.run("git", ["show", `HEAD:${file}`]);
+    } catch {
+      return "";
+    }
   }
 }

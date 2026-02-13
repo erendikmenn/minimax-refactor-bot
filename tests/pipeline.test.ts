@@ -41,6 +41,7 @@ const buildDependencies = (): PipelineDependencies => ({
       chunks: [
         {
           files: ["src/index.ts"],
+          snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
           diff: [
             "diff --git a/src/index.ts b/src/index.ts",
             "--- a/src/index.ts",
@@ -67,6 +68,7 @@ const buildDependencies = (): PipelineDependencies => ({
           ].join("\n"),
           chunk: {
             files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
             diff: [
               "diff --git a/src/index.ts b/src/index.ts",
               "--- a/src/index.ts",
@@ -216,6 +218,7 @@ describe("RefactorPipeline", () => {
           ].join("\n"),
           chunk: {
             files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
             diff: [
               "diff --git a/src/index.ts b/src/index.ts",
               "--- a/src/index.ts",

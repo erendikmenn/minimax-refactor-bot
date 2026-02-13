@@ -6,6 +6,10 @@ export interface MinimaxInput {
   headRef: string;
   changedFiles: string[];
   diff: string;
+  snapshots: Array<{
+    path: string;
+    content: string;
+  }>;
 }
 
 export interface MinimaxRepairInput extends MinimaxInput {
@@ -33,7 +37,8 @@ const commonRules = [
   "- improve performance if obvious",
   "- keep public APIs",
   "- NEVER modify database schema",
-  "- output MUST be directly consumable by `git apply --index --3way --recount`",
+  "- NEVER use /dev/null in --- or +++ patch headers",
+  "- output MUST be directly consumable by `git apply --index --recount`",
   "- each changed file must include: diff --git, --- a/..., +++ b/..., and @@ hunks",
   "- inside hunks, every non-empty line must start with exactly one prefix: space, +, or -",
   "- do not use markdown fences",
@@ -58,6 +63,15 @@ const repairSystemPrompt = [
 
 const buildUserPrompt = (input: MinimaxInput): string => {
   const changedFiles = input.changedFiles.length > 0 ? input.changedFiles.join("\n") : "(none)";
+  const snapshots =
+    input.snapshots.length > 0
+      ? input.snapshots
+          .map((item) => {
+            const content = item.content || "(empty)";
+            return [`FILE: ${item.path}`, content].join("\n");
+          })
+          .join("\n\n")
+      : "(none)";
 
   return [
     `Repository: ${input.repository}`,
@@ -70,12 +84,24 @@ const buildUserPrompt = (input: MinimaxInput): string => {
     "Unified diff:",
     input.diff,
     "",
+    "Current file snapshots at HEAD (patch must apply to these):",
+    snapshots,
+    "",
     `If no meaningful refactor exists, output exactly: ${NO_CHANGES_SIGNAL}`
   ].join("\n");
 };
 
 const buildRepairPrompt = (input: MinimaxRepairInput): string => {
   const changedFiles = input.changedFiles.length > 0 ? input.changedFiles.join("\n") : "(none)";
+  const snapshots =
+    input.snapshots.length > 0
+      ? input.snapshots
+          .map((item) => {
+            const content = item.content || "(empty)";
+            return [`FILE: ${item.path}`, content].join("\n");
+          })
+          .join("\n\n")
+      : "(none)";
 
   return [
     `Repository: ${input.repository}`,
@@ -87,6 +113,9 @@ const buildRepairPrompt = (input: MinimaxRepairInput): string => {
     "",
     "Original source diff:",
     input.diff,
+    "",
+    "Current file snapshots at HEAD (patch must apply to these):",
+    snapshots,
     "",
     "Previously generated patch (failed to apply):",
     input.failedPatch,
@@ -224,6 +253,9 @@ const validateUnifiedDiff = (value: string): { valid: boolean; reason?: string }
     }
 
     if (trimmed.startsWith("--- ") || trimmed.startsWith("+++ ")) {
+      if (trimmed === "--- /dev/null" || trimmed === "+++ /dev/null") {
+        return { valid: false, reason: "Patch must not use /dev/null headers" };
+      }
       inHunk = false;
       hasHeader = true;
       continue;

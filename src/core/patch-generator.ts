@@ -51,7 +51,8 @@ export class PatchGenerator {
         baseRef: input.baseRef,
         headRef: input.headRef,
         changedFiles: chunk.files,
-        diff: chunk.diff
+        diff: chunk.diff,
+        snapshots: chunk.snapshots
       });
 
       if (result.status === "no_changes") {
@@ -76,6 +77,7 @@ export class PatchGenerator {
       headRef: input.headRef,
       changedFiles: input.chunk.files,
       diff: input.chunk.diff,
+      snapshots: input.chunk.snapshots,
       failedPatch: input.failedPatch,
       applyError: input.applyError
     });
