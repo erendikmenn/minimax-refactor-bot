@@ -32,6 +32,10 @@ const systemPrompt = [
   "- improve performance if obvious",
   "- keep public APIs",
   "- NEVER modify database schema",
+  "- output MUST be directly consumable by `git apply --index --3way --recount`",
+  "- each changed file must include: diff --git, --- a/..., +++ b/..., and @@ hunks",
+  "- inside hunks, every non-empty line must start with exactly one prefix: space, +, or -",
+  "- do not use markdown fences",
   "- return ONLY unified diff or NO_CHANGES_NEEDED"
 ].join("\n");
 

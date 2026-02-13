@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { CommandExecutor } from "../utils/exec.js";
+import { CommandExecutionError, type CommandExecutor } from "../utils/exec.js";
 
 export class GitApplyEngine {
   private readonly executor: CommandExecutor;
@@ -17,7 +17,15 @@ export class GitApplyEngine {
 
     try {
       await writeFile(patchPath, `${patch.trimEnd()}\n`, "utf8");
-      await this.executor.run("git", ["apply", "--index", "--3way", patchPath]);
+      await this.executor.run("git", ["apply", "--check", "--index", "--3way", "--recount", patchPath]);
+      await this.executor.run("git", ["apply", "--index", "--3way", "--recount", patchPath]);
+    } catch (error) {
+      if (error instanceof CommandExecutionError) {
+        throw new Error(
+          `Failed to apply patch with git apply: ${error.stderr || error.stdout || error.message}`
+        );
+      }
+      throw error;
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
