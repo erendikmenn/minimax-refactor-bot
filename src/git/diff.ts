@@ -34,10 +34,12 @@ export const readPushEventPayload = async (eventPath?: string): Promise<PushEven
 export class GitDiffExtractor {
   private readonly executor: CommandExecutor;
   private readonly maxDiffSize: number;
+  private readonly maxFilesPerChunk: number;
 
-  public constructor(executor: CommandExecutor, maxDiffSize: number) {
+  public constructor(executor: CommandExecutor, maxDiffSize: number, maxFilesPerChunk = 1) {
     this.executor = executor;
     this.maxDiffSize = maxDiffSize;
+    this.maxFilesPerChunk = Math.max(1, maxFilesPerChunk);
   }
 
   public async resolveRangeFromEvent(eventPath?: string): Promise<{ baseSha: string; headSha: string }> {
@@ -75,10 +77,7 @@ export class GitDiffExtractor {
       return null;
     }
 
-    const chunks =
-      fullDiff.length <= this.maxDiffSize
-        ? [{ files: changedFiles, diff: fullDiff }]
-        : await this.splitDiffByFile(baseSha, headSha, changedFiles);
+    const chunks = await this.splitDiffByFile(baseSha, headSha, changedFiles);
 
     return {
       baseSha,
@@ -101,7 +100,10 @@ export class GitDiffExtractor {
       }
 
       const nextLength = currentDiff.length + fileDiff.length + 1;
-      if (nextLength > this.maxDiffSize && currentDiff.length > 0) {
+      const chunkWouldOverflow = nextLength > this.maxDiffSize && currentDiff.length > 0;
+      const fileLimitReached = currentFiles.length >= this.maxFilesPerChunk && currentDiff.length > 0;
+
+      if (chunkWouldOverflow || fileLimitReached) {
         chunks.push({ files: currentFiles, diff: currentDiff.trimEnd() });
         currentDiff = "";
         currentFiles = [];

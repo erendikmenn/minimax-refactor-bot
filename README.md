@@ -31,9 +31,10 @@ flowchart LR
 3. Bot extracts unified diff and changed files.
 4. If diff exceeds `MAX_DIFF_SIZE`, it splits by file into chunks.
 5. MiniMax receives each chunk and returns either a unified diff patch or `NO_CHANGES_NEEDED`.
-6. Bot applies patch using `git apply --index --3way`.
-7. Bot runs tests (`TEST_COMMAND`, default `npm test`).
-8. If tests pass and changes exist, bot creates branch + commit + PR.
+6. Bot applies patch using `git apply --check --index --3way --recount`.
+7. If apply fails, bot asks MiniMax for a repaired patch (up to `PATCH_REPAIR_ATTEMPTS`).
+8. Bot runs tests (`TEST_COMMAND`, default `npm test`).
+9. If tests pass and changes exist, bot creates branch + commit + PR.
 
 ### Project Layout
 
@@ -82,8 +83,10 @@ Optional:
 
 - `MODEL_NAME` (default: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (default: `80000`)
+- `MAX_FILES_PER_CHUNK` (default: `1`)
 - `TIMEOUT_MS` (default: `60000`)
 - `MAX_RETRIES` (default: `2`)
+- `PATCH_REPAIR_ATTEMPTS` (default: `2`)
 - `TEST_COMMAND` (default: `npm test`)
 
 ### Connect to a Repository
@@ -127,9 +130,10 @@ Yukarıdaki diyagram aynı şekilde Türkçe akış için de geçerlidir.
 3. Unified diff ve değişen dosyaları çıkarır.
 4. Diff `MAX_DIFF_SIZE` sınırını aşarsa dosya bazında parçalara böler.
 5. MiniMax her parça için unified diff patch ya da `NO_CHANGES_NEEDED` döndürür.
-6. Patch, `git apply --index --3way` ile uygulanır.
-7. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
-8. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
+6. Patch, `git apply --check --index --3way --recount` ile uygulanır.
+7. Apply başarısız olursa bot, `PATCH_REPAIR_ATTEMPTS` kadar MiniMax'tan onarım patch’i ister.
+8. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
+9. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
 
 ### Kurulum
 
@@ -157,8 +161,10 @@ Opsiyonel:
 
 - `MODEL_NAME` (varsayılan: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (varsayılan: `80000`)
+- `MAX_FILES_PER_CHUNK` (varsayılan: `1`)
 - `TIMEOUT_MS` (varsayılan: `60000`)
 - `MAX_RETRIES` (varsayılan: `2`)
+- `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
 - `TEST_COMMAND` (varsayılan: `npm test`)
 
 ### Repoya Bağlama

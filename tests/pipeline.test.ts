@@ -8,11 +8,13 @@ const baseConfig: BotConfig = {
   githubToken: "ghs_test",
   modelName: "minimax/minimax-m2.5",
   maxDiffSize: 10000,
+  maxFilesPerChunk: 1,
   timeoutMs: 1000,
   repository: "acme/project",
   baseBranch: "main",
   eventPath: "/tmp/event.json",
   maxRetries: 1,
+  patchRepairAttempts: 2,
   testCommand: "npm test"
 };
 
@@ -54,17 +56,31 @@ const buildDependencies = (): PipelineDependencies => ({
   patchGenerator: {
     generate: vi.fn().mockResolvedValue({
       patches: [
-        [
-          "diff --git a/src/index.ts b/src/index.ts",
-          "--- a/src/index.ts",
-          "+++ b/src/index.ts",
-          "@@ -1 +1 @@",
-          "-const a=1;",
-          "+const a = 1;"
-        ].join("\n")
+        {
+          patch: [
+            "diff --git a/src/index.ts b/src/index.ts",
+            "--- a/src/index.ts",
+            "+++ b/src/index.ts",
+            "@@ -1 +1 @@",
+            "-const a=1;",
+            "+const a = 1;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
       ],
       skippedChunks: 0
-    })
+    }),
+    repairPatch: vi.fn().mockResolvedValue(null)
   },
   applyEngine: {
     applyUnifiedDiff: vi.fn().mockResolvedValue(undefined),
@@ -120,6 +136,51 @@ describe("RefactorPipeline", () => {
     const branchName = (deps.branchManager.createBranch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(branchName).toMatch(/^refactor\/minimax-\d{14}$/);
     expect(deps.prCreator.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs patch and still creates branch/PR when first apply fails", async () => {
+    const deps = buildDependencies();
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+
+    applyPatch
+      .mockRejectedValueOnce(new Error("Failed to apply patch with git apply: corrupt patch"))
+      .mockResolvedValueOnce(undefined);
+    repairPatch.mockResolvedValueOnce(
+      [
+        "diff --git a/src/index.ts b/src/index.ts",
+        "--- a/src/index.ts",
+        "+++ b/src/index.ts",
+        "@@ -1 +1 @@",
+        "-const a=1;",
+        "+const a = 1;"
+      ].join("\n")
+    );
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result.status).toBe("created");
+    expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(deps.branchManager.createBranch).toHaveBeenCalledTimes(1);
+    expect(deps.prCreator.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns patch_apply_failure when apply fails and repair cannot recover", async () => {
+    const deps = buildDependencies();
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+
+    applyPatch.mockRejectedValue(new Error("Failed to apply patch with git apply: corrupt patch"));
+    repairPatch.mockResolvedValue(null);
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "patch_apply_failure" });
+    expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
 
   it("skips PR creation when tests fail after patch apply", async () => {

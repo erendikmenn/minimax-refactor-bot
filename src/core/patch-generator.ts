@@ -10,8 +10,20 @@ export interface PatchGenerationInput {
 }
 
 export interface PatchGenerationResult {
-  patches: string[];
+  patches: Array<{
+    patch: string;
+    chunk: DiffChunk;
+  }>;
   skippedChunks: number;
+}
+
+export interface PatchRepairInput {
+  repository: string;
+  baseRef: string;
+  headRef: string;
+  chunk: DiffChunk;
+  failedPatch: string;
+  applyError: string;
 }
 
 export class PatchGenerator {
@@ -24,7 +36,7 @@ export class PatchGenerator {
   }
 
   public async generate(input: PatchGenerationInput): Promise<PatchGenerationResult> {
-    const patches: string[] = [];
+    const patches: Array<{ patch: string; chunk: DiffChunk }> = [];
     let skippedChunks = 0;
 
     for (const [index, chunk] of input.chunks.entries()) {
@@ -47,9 +59,31 @@ export class PatchGenerator {
         continue;
       }
 
-      patches.push(result.patch);
+      patches.push({ patch: result.patch, chunk });
     }
 
     return { patches, skippedChunks };
+  }
+
+  public async repairPatch(input: PatchRepairInput): Promise<string | null> {
+    this.logger.warn("Attempting MiniMax patch repair", {
+      fileCount: input.chunk.files.length
+    });
+
+    const result = await this.agent.repairPatch({
+      repository: input.repository,
+      baseRef: input.baseRef,
+      headRef: input.headRef,
+      changedFiles: input.chunk.files,
+      diff: input.chunk.diff,
+      failedPatch: input.failedPatch,
+      applyError: input.applyError
+    });
+
+    if (result.status === "no_changes") {
+      return null;
+    }
+
+    return result.patch;
   }
 }

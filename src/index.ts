@@ -45,7 +45,7 @@ const main = async (): Promise<void> => {
   const pipeline = new RefactorPipeline({
     config,
     logger,
-    diffExtractor: new GitDiffExtractor(executor, config.maxDiffSize),
+    diffExtractor: new GitDiffExtractor(executor, config.maxDiffSize, config.maxFilesPerChunk),
     patchGenerator: new PatchGenerator(minimaxAgent, logger),
     applyEngine: new GitApplyEngine(executor),
     branchManager: new GitBranchManager(executor),

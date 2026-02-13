@@ -17,7 +17,21 @@ export interface PatchGeneratorPort {
     baseRef: string;
     headRef: string;
     chunks: DiffChunk[];
-  }): Promise<{ patches: string[]; skippedChunks: number }>;
+  }): Promise<{
+    patches: Array<{
+      patch: string;
+      chunk: DiffChunk;
+    }>;
+    skippedChunks: number;
+  }>;
+  repairPatch(input: {
+    repository: string;
+    baseRef: string;
+    headRef: string;
+    chunk: DiffChunk;
+    failedPatch: string;
+    applyError: string;
+  }): Promise<string | null>;
 }
 
 export interface ApplyEngine {
@@ -139,7 +153,13 @@ export class RefactorPipeline {
     const repoSummary = await repoScanner.scanSummary();
     logger.debug("Repository scanned", repoSummary);
 
-    let patchResult: { patches: string[]; skippedChunks: number };
+    let patchResult: {
+      patches: Array<{
+        patch: string;
+        chunk: DiffChunk;
+      }>;
+      skippedChunks: number;
+    };
     try {
       patchResult = await patchGenerator.generate({
         repository: config.repository,
@@ -162,8 +182,44 @@ export class RefactorPipeline {
     }
 
     try {
-      for (const patch of patchResult.patches) {
-        await applyEngine.applyUnifiedDiff(patch);
+      for (const generated of patchResult.patches) {
+        let currentPatch = generated.patch;
+        let attempt = 0;
+
+        while (true) {
+          try {
+            await applyEngine.applyUnifiedDiff(currentPatch);
+            break;
+          } catch (error) {
+            const applyError = error instanceof Error ? error.message : String(error);
+
+            if (attempt >= config.patchRepairAttempts) {
+              throw error;
+            }
+
+            attempt += 1;
+            logger.warn("Patch apply failed, requesting repair patch", {
+              attempt,
+              maxAttempts: config.patchRepairAttempts,
+              applyError
+            });
+
+            const repairedPatch = await patchGenerator.repairPatch({
+              repository: config.repository,
+              baseRef: diffContext.baseSha,
+              headRef: diffContext.headSha,
+              chunk: generated.chunk,
+              failedPatch: currentPatch,
+              applyError
+            });
+
+            if (!repairedPatch) {
+              throw new Error("MiniMax repair did not produce a patch");
+            }
+
+            currentPatch = repairedPatch;
+          }
+        }
       }
     } catch (error) {
       logger.warn("Patch application failed, skipping PR creation", {
