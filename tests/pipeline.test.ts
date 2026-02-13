@@ -126,6 +126,20 @@ describe("RefactorPipeline", () => {
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
   });
 
+  it("skips PR creation when MiniMax reports no patch", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    generate.mockResolvedValueOnce({ patches: [], skippedChunks: 1 });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    expect(deps.applyEngine.applyUnifiedDiff).not.toHaveBeenCalled();
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
   it("creates branch and PR when MiniMax returns a valid patch", async () => {
     const deps = buildDependencies();
     const pipeline = new RefactorPipeline(deps);
@@ -195,6 +209,19 @@ describe("RefactorPipeline", () => {
 
     expect(result).toEqual({ status: "skipped", reason: "test_failure" });
     expect(deps.applyEngine.applyUnifiedDiff).toHaveBeenCalledTimes(1);
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
+  it("skips PR creation when patch applies but no staged changes remain", async () => {
+    const deps = buildDependencies();
+    const hasStagedChanges = deps.applyEngine.hasStagedChanges as ReturnType<typeof vi.fn>;
+    hasStagedChanges.mockResolvedValueOnce(false);
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
     expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
