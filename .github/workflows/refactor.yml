@@ -1,0 +1,45 @@
+name: MiniMax Refactor Bot
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  minimax-refactor:
+    if: ${{ github.event.before != '0000000000000000000000000000000000000000' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bot
+        run: npm run build
+
+      - name: Run MiniMax refactor pipeline
+        run: npm run run
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          MODEL_NAME: ${{ vars.MODEL_NAME }}
+          MAX_DIFF_SIZE: ${{ vars.MAX_DIFF_SIZE }}
+          TIMEOUT_MS: ${{ vars.TIMEOUT_MS }}
