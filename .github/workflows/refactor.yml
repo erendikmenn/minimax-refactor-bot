@@ -43,6 +43,7 @@ jobs:
           MODEL_NAME: ${{ vars.MODEL_NAME }}
           MAX_DIFF_SIZE: ${{ vars.MAX_DIFF_SIZE }}
           MAX_FILES_PER_CHUNK: ${{ vars.MAX_FILES_PER_CHUNK }}
+          MAX_CHUNKS_PER_RUN: ${{ vars.MAX_CHUNKS_PER_RUN }}
           TIMEOUT_MS: ${{ vars.TIMEOUT_MS }}
           MAX_RETRIES: ${{ vars.MAX_RETRIES }}
           PATCH_REPAIR_ATTEMPTS: ${{ vars.PATCH_REPAIR_ATTEMPTS }}
