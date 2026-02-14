@@ -9,6 +9,7 @@ const baseConfig: BotConfig = {
   modelName: "minimax/minimax-m2.5",
   maxDiffSize: 10000,
   maxFilesPerChunk: 1,
+  maxChunksPerRun: 20,
   timeoutMs: 1000,
   watchPollIntervalMs: 1000,
   fileExcludePatterns: ["(^|/)package-lock\\.json$"],
@@ -120,7 +121,18 @@ const buildDependencies = (): PipelineDependencies => ({
   },
   executor: {
     run: vi.fn().mockResolvedValue("")
-  }
+  },
+  usageStatsProvider: () => ({
+    httpRequests: 3,
+    successfulResponses: 3,
+    retryCount: 0,
+    promptTokens: 300,
+    completionTokens: 200,
+    totalTokens: 500,
+    totalCostUsd: 0.0012,
+    averageLatencyMs: 500,
+    maxLatencyMs: 700
+  })
 });
 
 describe("RefactorPipeline", () => {
@@ -253,6 +265,81 @@ describe("RefactorPipeline", () => {
     const branchName = (deps.branchManager.createBranch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(branchName).toMatch(/^refactor\/minimax-\d{14}$/);
     expect(deps.prCreator.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("prioritizes test chunks when chunk cap is reached", async () => {
+    const deps = buildDependencies();
+    deps.config.maxChunksPerRun = 1;
+    const extract = deps.diffExtractor.extract as ReturnType<typeof vi.fn>;
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+
+    extract.mockResolvedValueOnce({
+      baseSha: "abc123",
+      headSha: "def456",
+      changedFiles: ["src/index.ts", "test/index.test.js"],
+      excludedFiles: [],
+      fullDiff: "diff --git a/src/index.ts b/src/index.ts",
+      chunks: [
+        {
+          files: ["src/index.ts"],
+          snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+          diff: "diff --git a/src/index.ts b/src/index.ts"
+        },
+        {
+          files: ["test/index.test.js"],
+          snapshots: [{ path: "test/index.test.js", content: "test('x',()=>{});\n" }],
+          diff: "diff --git a/test/index.test.js b/test/index.test.js"
+        }
+      ]
+    });
+
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    const generateArgs = generate.mock.calls[0]?.[0] as { chunks: Array<{ files: string[] }> };
+    expect(generateArgs.chunks).toHaveLength(1);
+    expect(generateArgs.chunks[0]?.files).toEqual(["test/index.test.js"]);
+  });
+
+  it("writes detailed PR body with rationale, safety checks, and run cost", async () => {
+    const deps = buildDependencies();
+    const runCommand = deps.executor.run as ReturnType<typeof vi.fn>;
+    runCommand.mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes("--shortstat")) {
+        return "1 file changed, 5 insertions(+), 3 deletions(-)";
+      }
+      if (args.includes("--numstat")) {
+        return "5\t3\tsrc/index.ts";
+      }
+      return "";
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result.status).toBe("created");
+    const prCreateCall = (deps.prCreator.create as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      body: string;
+    };
+    expect(prCreateCall.body).toContain("## Why These Changes");
+    expect(prCreateCall.body).toContain("## What Changed");
+    expect(prCreateCall.body).toContain("## Potential Impact");
+    expect(prCreateCall.body).toContain("## Safety Checks");
+    expect(prCreateCall.body).toContain("## Run Cost");
+    expect(prCreateCall.body).toContain("Cost: $0.001200");
   });
 
   it("repairs patch and still creates branch/PR when first apply fails", async () => {
