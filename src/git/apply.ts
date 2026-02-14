@@ -4,6 +4,55 @@ import path from "node:path";
 
 import { CommandExecutionError, type CommandExecutor } from "../utils/exec.js";
 
+const summarizeRepeatedLines = (lines: string[], maxOutputLines: number): string[] => {
+  const summarized: string[] = [];
+  let index = 0;
+
+  while (index < lines.length && summarized.length < maxOutputLines) {
+    const line = lines[index];
+    if (typeof line !== "string") {
+      break;
+    }
+
+    let repeatCount = 1;
+
+    while (index + repeatCount < lines.length && lines[index + repeatCount] === line) {
+      repeatCount += 1;
+    }
+
+    if (repeatCount > 1) {
+      summarized.push(`${line} (repeated ${repeatCount}x)`);
+    } else {
+      summarized.push(line);
+    }
+
+    index += repeatCount;
+  }
+
+  if (index < lines.length) {
+    summarized.push(`... (${lines.length - index} more lines omitted)`);
+  }
+
+  return summarized;
+};
+
+const summarizeGitApplyError = (raw: string): string => {
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return "unknown git apply error";
+  }
+
+  if (lines.length <= 20) {
+    return lines.join("\n");
+  }
+
+  return summarizeRepeatedLines(lines, 20).join("\n");
+};
+
 export class GitApplyEngine {
   private readonly executor: CommandExecutor;
 
@@ -21,8 +70,9 @@ export class GitApplyEngine {
       await this.executor.run("git", ["apply", "--index", "--recount", patchPath]);
     } catch (error) {
       if (error instanceof CommandExecutionError) {
+        const summarizedError = summarizeGitApplyError(error.stderr || error.stdout || error.message);
         throw new Error(
-          `Failed to apply patch with git apply: ${error.stderr || error.stdout || error.message}`
+          `Failed to apply patch with git apply: ${summarizedError}`
         );
       }
       throw error;

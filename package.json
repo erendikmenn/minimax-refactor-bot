@@ -14,7 +14,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "run": "node dist/index.js run",
+    "watch": "node dist/index.js watch",
     "dev": "tsx src/index.ts run",
+    "dev:watch": "tsx src/index.ts watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },

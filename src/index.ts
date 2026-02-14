@@ -2,6 +2,7 @@
 import { loadConfig } from "./core/config.js";
 import { PatchGenerator } from "./core/patch-generator.js";
 import { RefactorPipeline } from "./core/pipeline.js";
+import { PollingPushWatcher } from "./core/watch.js";
 import { MinimaxAgent } from "./ai/minimax-agent.js";
 import { OpenRouterClient } from "./ai/openrouter-client.js";
 import { GitApplyEngine } from "./git/apply.js";
@@ -14,7 +15,7 @@ import { consoleLogger } from "./utils/logger.js";
 
 const usage = (): void => {
   // eslint-disable-next-line no-console
-  console.log("Usage: minimax-refactor-bot run");
+  console.log("Usage: minimax-refactor-bot <run|watch>");
 };
 
 const main = async (): Promise<void> => {
@@ -25,7 +26,7 @@ const main = async (): Promise<void> => {
     process.exit(0);
   }
 
-  if (command !== "run") {
+  if (command !== "run" && command !== "watch") {
     usage();
     process.exit(1);
   }
@@ -54,8 +55,34 @@ const main = async (): Promise<void> => {
     executor
   });
 
-  const result = await pipeline.run();
-  logger.info("Pipeline finished", result);
+  if (command === "run") {
+    const result = await pipeline.run();
+    logger.info("Pipeline finished", result);
+    return;
+  }
+
+  const watcher = new PollingPushWatcher({
+    config,
+    executor,
+    logger
+  });
+
+  logger.info("Starting watch mode");
+  await watcher.watch(async ({ eventPath, baseSha, headSha }) => {
+    const previousEventPath = config.eventPath;
+    config.eventPath = eventPath;
+
+    try {
+      const result = await pipeline.run();
+      logger.info("Watch pipeline finished", {
+        before: baseSha,
+        after: headSha,
+        result
+      });
+    } finally {
+      config.eventPath = previousEventPath;
+    }
+  });
 };
 
 main().catch((error) => {

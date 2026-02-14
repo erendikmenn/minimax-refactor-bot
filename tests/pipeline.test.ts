@@ -10,6 +10,7 @@ const baseConfig: BotConfig = {
   maxDiffSize: 10000,
   maxFilesPerChunk: 1,
   timeoutMs: 1000,
+  watchPollIntervalMs: 1000,
   repository: "acme/project",
   baseBranch: "main",
   eventPath: "/tmp/event.json",
