@@ -9,7 +9,14 @@ export interface DiffExtractor {
   extract(
     baseSha: string,
     headSha: string
-  ): Promise<{ baseSha: string; headSha: string; changedFiles: string[]; fullDiff: string; chunks: DiffChunk[] } | null>;
+  ): Promise<{
+    baseSha: string;
+    headSha: string;
+    changedFiles: string[];
+    excludedFiles: string[];
+    fullDiff: string;
+    chunks: DiffChunk[];
+  } | null>;
 }
 
 export interface PatchGeneratorPort {
@@ -24,6 +31,13 @@ export interface PatchGeneratorPort {
       chunk: DiffChunk;
     }>;
     skippedChunks: number;
+    failedChunks: number;
+    failureBreakdown: {
+      timeout: number;
+      invalid_output: number;
+      api_error: number;
+      unknown: number;
+    };
   }>;
   repairPatch(input: {
     repository: string;
@@ -81,7 +95,14 @@ export interface PipelineDependencies {
 export type PipelineResult =
   | {
       status: "skipped";
-      reason: "no_diff" | "no_patch" | "test_failure" | "model_failure" | "patch_apply_failure";
+      reason: "no_diff" | "no_patch" | "test_failure" | "patch_apply_failure";
+    }
+  | {
+      status: "skipped";
+      reason: "model_failure";
+      modelFailureSubtype: "timeout" | "invalid_output" | "api_error" | "unknown" | "mixed";
+      failedChunks: number;
+      totalChunks: number;
     }
   | {
       status: "created";
@@ -166,6 +187,34 @@ const buildPrBody = (files: string[], context: { baseSha: string; headSha: strin
   ].join("\n");
 };
 
+const deriveModelFailureSubtype = (failureBreakdown: {
+  timeout: number;
+  invalid_output: number;
+  api_error: number;
+  unknown: number;
+}): "timeout" | "invalid_output" | "api_error" | "unknown" | "mixed" => {
+  const entries = Object.entries(failureBreakdown).filter(([, count]) => count > 0);
+  if (entries.length === 0) {
+    return "unknown";
+  }
+
+  if (entries.length > 1) {
+    return "mixed";
+  }
+
+  const subtype = entries[0]?.[0];
+  if (
+    subtype === "timeout" ||
+    subtype === "invalid_output" ||
+    subtype === "api_error" ||
+    subtype === "unknown"
+  ) {
+    return subtype;
+  }
+
+  return "unknown";
+};
+
 export class RefactorPipeline {
   private readonly deps: PipelineDependencies;
 
@@ -194,33 +243,52 @@ export class RefactorPipeline {
       return { status: "skipped", reason: "no_diff" };
     }
 
+    if (diffContext.excludedFiles.length > 0) {
+      logger.info("Excluded files from AI analysis", {
+        excludedFileCount: diffContext.excludedFiles.length,
+        excludedFiles: diffContext.excludedFiles
+      });
+    }
+
     const repoSummary = await repoScanner.scanSummary();
     logger.debug("Repository scanned", repoSummary);
 
-    let patchResult: {
-      patches: Array<{
-        patch: string;
-        chunk: DiffChunk;
-      }>;
-      skippedChunks: number;
-    };
-    try {
-      patchResult = await patchGenerator.generate({
-        repository: config.repository,
-        baseRef: diffContext.baseSha,
-        headRef: diffContext.headSha,
-        chunks: diffContext.chunks
+    const patchResult = await patchGenerator.generate({
+      repository: config.repository,
+      baseRef: diffContext.baseSha,
+      headRef: diffContext.headSha,
+      chunks: diffContext.chunks
+    });
+
+    if (patchResult.failedChunks > 0) {
+      logger.warn("Some MiniMax chunks failed and were skipped", {
+        failedChunks: patchResult.failedChunks,
+        totalChunks: diffContext.chunks.length,
+        failureBreakdown: patchResult.failureBreakdown
       });
-    } catch (error) {
-      logger.warn("MiniMax generation failed, skipping PR creation", {
-        error: error instanceof Error ? error.message : String(error)
+    }
+
+    if (patchResult.failedChunks === diffContext.chunks.length) {
+      const modelFailureSubtype = deriveModelFailureSubtype(patchResult.failureBreakdown);
+      logger.warn("MiniMax generation failed for all chunks, skipping PR creation", {
+        modelFailureSubtype,
+        failedChunks: patchResult.failedChunks,
+        totalChunks: diffContext.chunks.length
       });
-      return { status: "skipped", reason: "model_failure" };
+
+      return {
+        status: "skipped",
+        reason: "model_failure",
+        modelFailureSubtype,
+        failedChunks: patchResult.failedChunks,
+        totalChunks: diffContext.chunks.length
+      };
     }
 
     if (patchResult.patches.length === 0) {
       logger.info("MiniMax reported no patch changes for this diff", {
-        skippedChunks: patchResult.skippedChunks
+        skippedChunks: patchResult.skippedChunks,
+        failedChunks: patchResult.failedChunks
       });
       return { status: "skipped", reason: "no_patch" };
     }

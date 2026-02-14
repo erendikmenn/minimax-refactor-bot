@@ -15,6 +15,13 @@ export interface PatchGenerationResult {
     chunk: DiffChunk;
   }>;
   skippedChunks: number;
+  failedChunks: number;
+  failureBreakdown: {
+    timeout: number;
+    invalid_output: number;
+    api_error: number;
+    unknown: number;
+  };
 }
 
 export interface PatchRepairInput {
@@ -25,6 +32,30 @@ export interface PatchRepairInput {
   failedPatch: string;
   applyError: string;
 }
+
+export type ChunkFailureType = "timeout" | "invalid_output" | "api_error" | "unknown";
+
+const classifyChunkFailure = (error: unknown): ChunkFailureType => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+
+  if (message.includes("aborted") || message.includes("timeout")) {
+    return "timeout";
+  }
+
+  if (
+    message.includes("invalid unified diff") ||
+    message.includes("invalid: expected unified diff") ||
+    message.includes("not a valid unified diff")
+  ) {
+    return "invalid_output";
+  }
+
+  if (message.includes("openrouter request failed") || message.includes("status 429") || message.includes("status 5")) {
+    return "api_error";
+  }
+
+  return "unknown";
+};
 
 export class PatchGenerator {
   private readonly agent: MinimaxAgent;
@@ -38,6 +69,13 @@ export class PatchGenerator {
   public async generate(input: PatchGenerationInput): Promise<PatchGenerationResult> {
     const patches: Array<{ patch: string; chunk: DiffChunk }> = [];
     let skippedChunks = 0;
+    let failedChunks = 0;
+    const failureBreakdown = {
+      timeout: 0,
+      invalid_output: 0,
+      api_error: 0,
+      unknown: 0
+    };
     const totalChunks = input.chunks.length;
 
     for (const [index, chunk] of input.chunks.entries()) {
@@ -47,14 +85,28 @@ export class PatchGenerator {
         diffSize: chunk.diff.length
       });
 
-      const result = await this.agent.generatePatch({
-        repository: input.repository,
-        baseRef: input.baseRef,
-        headRef: input.headRef,
-        changedFiles: chunk.files,
-        diff: chunk.diff,
-        snapshots: chunk.snapshots
-      });
+      let result;
+      try {
+        result = await this.agent.generatePatch({
+          repository: input.repository,
+          baseRef: input.baseRef,
+          headRef: input.headRef,
+          changedFiles: chunk.files,
+          diff: chunk.diff,
+          snapshots: chunk.snapshots
+        });
+      } catch (error) {
+        const failureType = classifyChunkFailure(error);
+        failureBreakdown[failureType] += 1;
+        failedChunks += 1;
+
+        this.logger.warn("MiniMax chunk generation failed; skipping chunk", {
+          chunk: `${index + 1}/${totalChunks}`,
+          failureType,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        continue;
+      }
 
       if (result.status === "no_changes") {
         this.logger.info("MiniMax returned NO_CHANGES_NEEDED for chunk", {
@@ -71,7 +123,7 @@ export class PatchGenerator {
       patches.push({ patch: result.patch, chunk });
     }
 
-    return { patches, skippedChunks };
+    return { patches, skippedChunks, failedChunks, failureBreakdown };
   }
 
   public async repairPatch(input: PatchRepairInput): Promise<string | null> {

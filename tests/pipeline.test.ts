@@ -11,6 +11,7 @@ const baseConfig: BotConfig = {
   maxFilesPerChunk: 1,
   timeoutMs: 1000,
   watchPollIntervalMs: 1000,
+  fileExcludePatterns: ["(^|/)package-lock\\.json$"],
   repository: "acme/project",
   baseBranch: "main",
   eventPath: "/tmp/event.json",
@@ -39,6 +40,7 @@ const buildDependencies = (): PipelineDependencies => ({
       baseSha: "abc123",
       headSha: "def456",
       changedFiles: ["src/index.ts"],
+      excludedFiles: [],
       fullDiff: "diff --git a/src/index.ts b/src/index.ts",
       chunks: [
         {
@@ -82,7 +84,14 @@ const buildDependencies = (): PipelineDependencies => ({
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     }),
     repairPatch: vi.fn().mockResolvedValue(null)
   },
@@ -131,7 +140,17 @@ describe("RefactorPipeline", () => {
   it("skips PR creation when MiniMax reports no patch", async () => {
     const deps = buildDependencies();
     const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
-    generate.mockResolvedValueOnce({ patches: [], skippedChunks: 1 });
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
 
     const pipeline = new RefactorPipeline(deps);
     const result = await pipeline.run();
@@ -140,6 +159,35 @@ describe("RefactorPipeline", () => {
     expect(deps.applyEngine.applyUnifiedDiff).not.toHaveBeenCalled();
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
     expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
+  it("returns model_failure when all chunks fail at generation stage", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 0,
+      failedChunks: 1,
+      failureBreakdown: {
+        timeout: 1,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "model_failure",
+      modelFailureSubtype: "timeout",
+      failedChunks: 1,
+      totalChunks: 1
+    });
+    expect(deps.applyEngine.applyUnifiedDiff).not.toHaveBeenCalled();
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
   });
 
   it("creates branch and PR when MiniMax returns a valid patch", async () => {
@@ -285,7 +333,14 @@ describe("RefactorPipeline", () => {
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     });
 
     repairPatch.mockResolvedValueOnce(
@@ -339,7 +394,14 @@ describe("RefactorPipeline", () => {
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     });
     repairPatch.mockResolvedValue(null);
 

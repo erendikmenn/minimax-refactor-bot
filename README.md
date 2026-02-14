@@ -35,7 +35,8 @@ flowchart LR
 7. If apply fails, bot asks MiniMax for a repaired patch (up to `PATCH_REPAIR_ATTEMPTS`).
 8. Bot runs tests (`TEST_COMMAND`, default `npm test`).
 9. If tests pass and changes exist, bot creates branch + commit + PR.
-10. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
+10. If one chunk fails at model stage (timeout/invalid output), other chunks continue; only all-chunk failure causes model-level skip.
+11. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
 
 ### Project Layout
 
@@ -86,9 +87,10 @@ Optional:
 - `MODEL_NAME` (default: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (default: `80000`)
 - `MAX_FILES_PER_CHUNK` (default: `1`)
-- `TIMEOUT_MS` (default: `60000`)
-- `MAX_RETRIES` (default: `2`)
+- `TIMEOUT_MS` (default: `30000`)
+- `MAX_RETRIES` (default: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (default: `2`)
+- `FILE_EXCLUDE_PATTERNS` (default excludes lockfiles, build outputs, and common binary assets)
 - `BEHAVIOR_GUARD_MODE` (`strict` by default, set `off` to disable)
 - `TEST_COMMAND` (default: `npm test`)
 - `WATCH_POLL_INTERVAL_MS` (default: `30000`)
@@ -125,6 +127,7 @@ At the end of each run, console output includes:
 ### Cost Expectations
 
 Cost depends on diff size, chunk count, model pricing, and retries. Use `MAX_DIFF_SIZE` to control request size and budget exposure.
+Large generated files (such as lockfiles/build artifacts) are excluded from AI prompts by default to reduce token spend and latency.
 
 ### Safety Rules
 
@@ -153,7 +156,8 @@ Yukarıdaki diyagram aynı şekilde Türkçe akış için de geçerlidir.
 7. Apply başarısız olursa bot, `PATCH_REPAIR_ATTEMPTS` kadar MiniMax'tan onarım patch’i ister.
 8. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
 9. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
-10. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
+10. Model aşamasında bir chunk timeout/geçersiz çıktı alsa bile diğer chunk’lar devam eder; tüm chunk’lar fail olursa model-level skip olur.
+11. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
 
 ### Kurulum
 
@@ -183,9 +187,10 @@ Opsiyonel:
 - `MODEL_NAME` (varsayılan: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (varsayılan: `80000`)
 - `MAX_FILES_PER_CHUNK` (varsayılan: `1`)
-- `TIMEOUT_MS` (varsayılan: `60000`)
-- `MAX_RETRIES` (varsayılan: `2`)
+- `TIMEOUT_MS` (varsayılan: `30000`)
+- `MAX_RETRIES` (varsayılan: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
+- `FILE_EXCLUDE_PATTERNS` (varsayılan olarak lockfile, build çıktıları ve yaygın binary dosyaları dışlar)
 - `BEHAVIOR_GUARD_MODE` (varsayılan `strict`, kapatmak için `off`)
 - `TEST_COMMAND` (varsayılan: `npm test`)
 - `WATCH_POLL_INTERVAL_MS` (varsayılan: `30000`)
@@ -219,6 +224,7 @@ npx minimax-refactor-bot watch
 ### Maliyet ve Güvenlik
 
 Maliyet; diff boyutu, parça sayısı, model fiyatı ve retry sayısına bağlıdır. `MAX_DIFF_SIZE` ile bütçeyi kontrol edebilirsiniz.
+Lockfile/build artifact gibi büyük üretilmiş dosyalar varsayılan olarak AI prompt’una alınmaz; böylece token maliyeti ve gecikme düşer.
 
 Aşağıdaki durumlarda PR açılmaz:
 

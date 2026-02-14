@@ -43,7 +43,7 @@ const describeValue = (result: PipelineResult | undefined, errorMessage?: string
     case "test_failure":
       return "Patch failed tests, so behavior-risk changes were blocked.";
     case "model_failure":
-      return "Invalid model output was rejected to protect repository integrity.";
+      return `All chunks failed at model stage (${result.modelFailureSubtype}); repository integrity was protected by skipping PR creation.`;
     case "patch_apply_failure":
       return "Unappliable patch was blocked before any branch/PR mutation.";
     default:
@@ -70,7 +70,9 @@ const printRunSummary = (params: {
     ? "failed (exception)"
     : result.status === "created"
       ? `created (${result.files.length} files)`
-      : `skipped (${result.reason})`;
+      : result.reason === "model_failure"
+        ? `skipped (${result.reason}:${result.modelFailureSubtype})`
+        : `skipped (${result.reason})`;
 
   const lines: string[] = [
     "",
@@ -88,6 +90,11 @@ const printRunSummary = (params: {
 
   if (errorMessage) {
     lines.push(`error: ${errorMessage}`);
+  }
+
+  if (result?.status === "skipped" && result.reason === "model_failure") {
+    lines.push(`model_failure_subtype: ${result.modelFailureSubtype}`);
+    lines.push(`failed_chunks: ${result.failedChunks}/${result.totalChunks}`);
   }
 
   if (result?.status === "created") {
@@ -148,7 +155,12 @@ const main = async (): Promise<void> => {
   const pipeline = new RefactorPipeline({
     config,
     logger,
-    diffExtractor: new GitDiffExtractor(executor, config.maxDiffSize, config.maxFilesPerChunk),
+    diffExtractor: new GitDiffExtractor(
+      executor,
+      config.maxDiffSize,
+      config.maxFilesPerChunk,
+      config.fileExcludePatterns
+    ),
     patchGenerator: new PatchGenerator(minimaxAgent, logger),
     applyEngine: new GitApplyEngine(executor),
     branchManager: new GitBranchManager(executor),

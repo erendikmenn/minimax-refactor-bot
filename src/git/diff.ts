@@ -15,6 +15,7 @@ export interface DiffContext {
   baseSha: string;
   headSha: string;
   changedFiles: string[];
+  excludedFiles: string[];
   fullDiff: string;
   chunks: DiffChunk[];
 }
@@ -39,11 +40,18 @@ export class GitDiffExtractor {
   private readonly executor: CommandExecutor;
   private readonly maxDiffSize: number;
   private readonly maxFilesPerChunk: number;
+  private readonly excludedFileRegexes: RegExp[];
 
-  public constructor(executor: CommandExecutor, maxDiffSize: number, maxFilesPerChunk = 1) {
+  public constructor(
+    executor: CommandExecutor,
+    maxDiffSize: number,
+    maxFilesPerChunk = 1,
+    fileExcludePatterns: string[] = []
+  ) {
     this.executor = executor;
     this.maxDiffSize = maxDiffSize;
     this.maxFilesPerChunk = Math.max(1, maxFilesPerChunk);
+    this.excludedFileRegexes = fileExcludePatterns.map((pattern) => new RegExp(pattern, "i"));
   }
 
   public async resolveRangeFromEvent(eventPath?: string): Promise<{ baseSha: string; headSha: string }> {
@@ -76,20 +84,39 @@ export class GitDiffExtractor {
       return null;
     }
 
-    const fullDiff = await this.executor.run("git", ["diff", "--unified=3", baseSha, headSha]);
+    const includedFiles = changedFiles.filter((file) => this.shouldIncludeFile(file));
+    const excludedFiles = changedFiles.filter((file) => !this.shouldIncludeFile(file));
+
+    if (includedFiles.length === 0) {
+      return null;
+    }
+
+    const fullDiff = await this.executor.run("git", [
+      "diff",
+      "--unified=3",
+      baseSha,
+      headSha,
+      "--",
+      ...includedFiles
+    ]);
     if (!fullDiff.trim()) {
       return null;
     }
 
-    const chunks = await this.splitDiffByFile(baseSha, headSha, changedFiles);
+    const chunks = await this.splitDiffByFile(baseSha, headSha, includedFiles);
 
     return {
       baseSha,
       headSha,
-      changedFiles,
+      changedFiles: includedFiles,
+      excludedFiles,
       fullDiff,
       chunks
     };
+  }
+
+  private shouldIncludeFile(file: string): boolean {
+    return !this.excludedFileRegexes.some((pattern) => pattern.test(file));
   }
 
   private async splitDiffByFile(baseSha: string, headSha: string, files: string[]): Promise<DiffChunk[]> {
