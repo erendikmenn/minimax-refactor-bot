@@ -7,6 +7,7 @@ export interface BotConfig {
   maxDiffSize: number;
   maxFilesPerChunk: number;
   timeoutMs: number;
+  watchPollIntervalMs: number;
   repository: string;
   baseBranch: string;
   eventPath: string | undefined;
@@ -53,6 +54,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     maxDiffSize: parsePositiveInt("MAX_DIFF_SIZE", env.MAX_DIFF_SIZE, 80000),
     maxFilesPerChunk: parsePositiveInt("MAX_FILES_PER_CHUNK", env.MAX_FILES_PER_CHUNK, 1),
     timeoutMs: parsePositiveInt("TIMEOUT_MS", env.TIMEOUT_MS, 60000),
+    watchPollIntervalMs: parsePositiveInt("WATCH_POLL_INTERVAL_MS", env.WATCH_POLL_INTERVAL_MS, 30000),
     repository: requireEnv("GITHUB_REPOSITORY", env),
     baseBranch: env.GITHUB_REF_NAME?.trim() || "main",
     eventPath: env.GITHUB_EVENT_PATH,
@@ -67,6 +69,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     maxDiffSize: config.maxDiffSize,
     maxFilesPerChunk: config.maxFilesPerChunk,
     timeoutMs: config.timeoutMs,
+    watchPollIntervalMs: config.watchPollIntervalMs,
     patchRepairAttempts: config.patchRepairAttempts,
     behaviorGuardMode: config.behaviorGuardMode,
     repository: config.repository,

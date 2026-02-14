@@ -69,6 +69,7 @@ For local development:
 npm ci
 npm run build
 npm test
+cp .env.local.example .env.local
 ```
 
 ### Environment Variables
@@ -89,6 +90,7 @@ Optional:
 - `PATCH_REPAIR_ATTEMPTS` (default: `2`)
 - `BEHAVIOR_GUARD_MODE` (`strict` by default, set `off` to disable)
 - `TEST_COMMAND` (default: `npm test`)
+- `WATCH_POLL_INTERVAL_MS` (default: `30000`)
 
 ### Connect to a Repository
 
@@ -103,6 +105,15 @@ Optional:
 ```bash
 npx minimax-refactor-bot run
 ```
+
+Continuous local polling mode:
+
+```bash
+npx minimax-refactor-bot watch
+```
+
+`run` executes once for a single commit range.
+`watch` stays alive, polls `origin/<base-branch>`, and runs the pipeline when new commits arrive.
 
 ### Cost Expectations
 
@@ -148,6 +159,7 @@ Yerel geliştirme:
 npm ci
 npm run build
 npm test
+cp .env.local.example .env.local
 ```
 
 ### Ortam Değişkenleri
@@ -168,6 +180,7 @@ Opsiyonel:
 - `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
 - `BEHAVIOR_GUARD_MODE` (varsayılan `strict`, kapatmak için `off`)
 - `TEST_COMMAND` (varsayılan: `npm test`)
+- `WATCH_POLL_INTERVAL_MS` (varsayılan: `30000`)
 
 ### Repoya Bağlama
 
@@ -176,6 +189,23 @@ Opsiyonel:
 3. `GITHUB_TOKEN` izinlerinde `contents: write` ve `pull-requests: write` olduğundan emin olun.
 4. `main` dalına bir PR merge edin.
 5. Bot, uygunsa otomatik refactor PR açar.
+
+### Yerelde Sürekli Çalıştırma
+
+Tek seferlik çalıştırma:
+
+```bash
+npx minimax-refactor-bot run
+```
+
+Sürekli izleme modu:
+
+```bash
+npx minimax-refactor-bot watch
+```
+
+- `run` yalnızca bir kez çalışır ve çıkar.
+- `watch` açık kalır, `origin/main` (veya `GITHUB_REF_NAME`) üzerinde yeni commit geldikçe pipeline'ı yeniden çalıştırır.
 
 ### Maliyet ve Güvenlik
 
