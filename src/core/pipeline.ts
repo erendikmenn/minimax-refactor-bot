@@ -88,6 +88,7 @@ export type PipelineResult =
       branchName: string;
       pullRequestUrl: string;
       files: string[];
+      changeSummary: string;
     };
 
 const parseRepository = (repository: string): { owner: string; repo: string } => {
@@ -325,6 +326,18 @@ export class RefactorPipeline {
     }
 
     const files = await applyEngine.listStagedFiles();
+    let changeSummary = "staged changes";
+    try {
+      const shortStat = (await executor.run("git", ["diff", "--cached", "--shortstat"])).trim();
+      if (shortStat) {
+        changeSummary = shortStat;
+      }
+    } catch (error) {
+      logger.warn("Failed to compute staged change summary", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
     const branchName = `refactor/minimax-${timestampForBranch()}`;
     await branchManager.configureIdentity({
       name: process.env.GIT_AUTHOR_NAME ?? "minimax-refactor-bot",
@@ -353,7 +366,8 @@ export class RefactorPipeline {
       status: "created",
       branchName,
       pullRequestUrl: pullRequest.url,
-      files
+      files,
+      changeSummary
     };
   }
 }

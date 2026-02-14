@@ -34,6 +34,19 @@ export interface OpenRouterChatCompletionResponse {
   usage?: OpenRouterUsage;
 }
 
+export interface OpenRouterUsageStats {
+  httpRequests: number;
+  successfulResponses: number;
+  retryCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  totalLatencyMs: number;
+  averageLatencyMs: number;
+  maxLatencyMs: number;
+}
+
 export class OpenRouterError extends Error {
   public readonly status: number;
   public readonly payload: string;
@@ -58,12 +71,33 @@ const sleep = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+const toFiniteNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  return 0;
+};
+
+const createInitialStats = (): Omit<OpenRouterUsageStats, "averageLatencyMs"> => ({
+  httpRequests: 0,
+  successfulResponses: 0,
+  retryCount: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  totalCostUsd: 0,
+  totalLatencyMs: 0,
+  maxLatencyMs: 0
+});
+
 export class OpenRouterClient {
   private readonly apiKey: string;
   private readonly timeoutMs: number;
   private readonly retries: number;
   private readonly logger: Logger;
   private readonly baseUrl: string;
+  private stats: Omit<OpenRouterUsageStats, "averageLatencyMs">;
 
   public constructor(options: OpenRouterClientOptions) {
     this.apiKey = options.apiKey;
@@ -71,6 +105,23 @@ export class OpenRouterClient {
     this.retries = options.retries;
     this.logger = options.logger;
     this.baseUrl = options.baseUrl ?? "https://openrouter.ai/api/v1";
+    this.stats = createInitialStats();
+  }
+
+  public resetUsageStats(): void {
+    this.stats = createInitialStats();
+  }
+
+  public getUsageStats(): OpenRouterUsageStats {
+    const averageLatencyMs =
+      this.stats.successfulResponses > 0
+        ? Math.round(this.stats.totalLatencyMs / this.stats.successfulResponses)
+        : 0;
+
+    return {
+      ...this.stats,
+      averageLatencyMs
+    };
   }
 
   public async createChatCompletion(
@@ -81,6 +132,8 @@ export class OpenRouterClient {
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+      const startedAt = Date.now();
+      this.stats.httpRequests += 1;
 
       try {
         const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -93,8 +146,6 @@ export class OpenRouterClient {
           signal: controller.signal
         });
 
-        clearTimeout(timeout);
-
         const text = await response.text();
         if (!response.ok) {
           throw new OpenRouterError(
@@ -105,17 +156,31 @@ export class OpenRouterClient {
         }
 
         const data = JSON.parse(text) as OpenRouterChatCompletionResponse;
+        const latencyMs = Date.now() - startedAt;
+        const promptTokens = toFiniteNumber(data.usage?.prompt_tokens);
+        const completionTokens = toFiniteNumber(data.usage?.completion_tokens);
+        const totalTokens = toFiniteNumber(data.usage?.total_tokens);
+        const totalCostUsd = toFiniteNumber(data.usage?.total_cost ?? data.usage?.cost);
+
+        this.stats.successfulResponses += 1;
+        this.stats.promptTokens += promptTokens;
+        this.stats.completionTokens += completionTokens;
+        this.stats.totalTokens += totalTokens;
+        this.stats.totalCostUsd += totalCostUsd;
+        this.stats.totalLatencyMs += latencyMs;
+        this.stats.maxLatencyMs = Math.max(this.stats.maxLatencyMs, latencyMs);
+
         this.logger.info("OpenRouter completion received", {
           model: data.model,
-          promptTokens: data.usage?.prompt_tokens,
-          completionTokens: data.usage?.completion_tokens,
-          totalTokens: data.usage?.total_tokens,
-          totalCost: data.usage?.total_cost ?? data.usage?.cost
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          totalCostUsd,
+          latencyMs
         });
 
         return data;
       } catch (error) {
-        clearTimeout(timeout);
         lastError = error;
 
         const isRetriable =
@@ -128,12 +193,18 @@ export class OpenRouterClient {
         }
 
         const backoffMs = 400 * 2 ** attempt;
+        this.stats.retryCount += 1;
         this.logger.warn("OpenRouter request failed, retrying", {
-          attempt,
+          attempt: attempt + 1,
+          maxAttempts: this.retries + 1,
           backoffMs,
+          latencyMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error)
         });
+        clearTimeout(timeout);
         await sleep(backoffMs);
+      } finally {
+        clearTimeout(timeout);
       }
     }
 

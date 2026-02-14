@@ -35,6 +35,7 @@ flowchart LR
 7. If apply fails, bot asks MiniMax for a repaired patch (up to `PATCH_REPAIR_ATTEMPTS`).
 8. Bot runs tests (`TEST_COMMAND`, default `npm test`).
 9. If tests pass and changes exist, bot creates branch + commit + PR.
+10. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
 
 ### Project Layout
 
@@ -115,6 +116,12 @@ npx minimax-refactor-bot watch
 `run` executes once for a single commit range.
 `watch` stays alive, polls `origin/<base-branch>`, and runs the pipeline when new commits arrive.
 
+At the end of each run, console output includes:
+- total OpenRouter requests and retries
+- prompt/completion/total tokens
+- total cost in USD
+- run outcome and value summary
+
 ### Cost Expectations
 
 Cost depends on diff size, chunk count, model pricing, and retries. Use `MAX_DIFF_SIZE` to control request size and budget exposure.
@@ -146,6 +153,7 @@ Yukarıdaki diyagram aynı şekilde Türkçe akış için de geçerlidir.
 7. Apply başarısız olursa bot, `PATCH_REPAIR_ATTEMPTS` kadar MiniMax'tan onarım patch’i ister.
 8. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
 9. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
+10. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
 
 ### Kurulum
 
@@ -206,6 +214,7 @@ npx minimax-refactor-bot watch
 
 - `run` yalnızca bir kez çalışır ve çıkar.
 - `watch` açık kalır, `origin/main` (veya `GITHUB_REF_NAME`) üzerinde yeni commit geldikçe pipeline'ı yeniden çalıştırır.
+- Her çalışmanın sonunda token, maliyet ve sonuç özeti konsolda görünür.
 
 ### Maliyet ve Güvenlik
 
