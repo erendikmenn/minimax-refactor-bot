@@ -201,6 +201,7 @@ export class OpenRouterClient {
           latencyMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error)
         });
+        clearTimeout(timeout);
         await sleep(backoffMs);
       } finally {
         clearTimeout(timeout);
