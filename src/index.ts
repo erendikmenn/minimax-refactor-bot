@@ -43,7 +43,7 @@ const describeValue = (result: PipelineResult | undefined, errorMessage?: string
     case "test_failure":
       return "Patch failed tests, so behavior-risk changes were blocked.";
     case "model_failure":
-      return `All chunks failed at model stage (${result.modelFailureSubtype}); repository integrity was protected by skipping PR creation.`;
+      return `${result.failedChunks}/${result.totalChunks} chunks failed at model stage (${result.modelFailureSubtype}); repository integrity was protected by skipping PR creation.`;
     case "patch_apply_failure":
       return "Unappliable patch was blocked before any branch/PR mutation.";
     default:

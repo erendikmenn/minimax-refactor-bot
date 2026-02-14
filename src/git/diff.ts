@@ -84,8 +84,15 @@ export class GitDiffExtractor {
       return null;
     }
 
-    const includedFiles = changedFiles.filter((file) => this.shouldIncludeFile(file));
-    const excludedFiles = changedFiles.filter((file) => !this.shouldIncludeFile(file));
+    const includedFiles: string[] = [];
+    const excludedFiles: string[] = [];
+    for (const file of changedFiles) {
+      if (this.shouldIncludeFile(file)) {
+        includedFiles.push(file);
+      } else {
+        excludedFiles.push(file);
+      }
+    }
 
     if (includedFiles.length === 0) {
       return null;

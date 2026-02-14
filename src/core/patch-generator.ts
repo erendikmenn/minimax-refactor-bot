@@ -1,4 +1,5 @@
-import type { MinimaxAgent } from "../ai/minimax-agent.js";
+import { MinimaxOutputValidationError, type MinimaxAgent } from "../ai/minimax-agent.js";
+import { OpenRouterError } from "../ai/openrouter-client.js";
 import type { DiffChunk } from "../git/diff.js";
 import type { Logger } from "../utils/logger.js";
 
@@ -36,22 +37,27 @@ export interface PatchRepairInput {
 export type ChunkFailureType = "timeout" | "invalid_output" | "api_error" | "unknown";
 
 const classifyChunkFailure = (error: unknown): ChunkFailureType => {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-
-  if (message.includes("aborted") || message.includes("timeout")) {
-    return "timeout";
-  }
-
-  if (
-    message.includes("invalid unified diff") ||
-    message.includes("invalid: expected unified diff") ||
-    message.includes("not a valid unified diff")
-  ) {
+  if (error instanceof MinimaxOutputValidationError) {
     return "invalid_output";
   }
 
-  if (message.includes("openrouter request failed") || message.includes("status 429") || message.includes("status 5")) {
+  if (error instanceof OpenRouterError) {
     return "api_error";
+  }
+
+  if (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.message.toLowerCase().includes("aborted"))
+  ) {
+    return "timeout";
+  }
+
+  if (error instanceof SyntaxError) {
+    return "api_error";
+  }
+
+  if (error instanceof Error && /(?:timed?\s*out|timeout|aborted)/i.test(error.message)) {
+    return "timeout";
   }
 
   return "unknown";

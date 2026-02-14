@@ -28,6 +28,13 @@ export type MinimaxResult =
       raw: string;
     };
 
+export class MinimaxOutputValidationError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "MinimaxOutputValidationError";
+  }
+}
+
 const NO_CHANGES_SIGNAL = "NO_CHANGES_NEEDED";
 
 const commonRules = [
@@ -353,12 +360,16 @@ export class MinimaxAgent {
     const extracted = extractDiffFromResponse(rawOutput);
     const diff = extracted ? sanitizeExtractedDiff(extracted) : null;
     if (!diff) {
-      throw new Error("MiniMax output is invalid: expected unified diff or NO_CHANGES_NEEDED");
+      throw new MinimaxOutputValidationError(
+        "MiniMax output is invalid: expected unified diff or NO_CHANGES_NEEDED"
+      );
     }
 
     const validation = validateUnifiedDiff(diff);
     if (!validation.valid) {
-      throw new Error(`MiniMax output is not a valid unified diff: ${validation.reason ?? "unknown reason"}`);
+      throw new MinimaxOutputValidationError(
+        `MiniMax output is not a valid unified diff: ${validation.reason ?? "unknown reason"}`
+      );
     }
 
     return {

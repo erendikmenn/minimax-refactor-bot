@@ -48,23 +48,83 @@ const defaultFileExcludePatterns = [
   "\\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|mp3|mp4|mov|woff2?|ttf|eot|otf|map)$"
 ];
 
-const parseRegexList = (name: string, value: string | undefined, fallback: string[]): string[] => {
-  const patterns = value
-    ? value
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-    : fallback;
+const splitByUnescapedComma = (value: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let escaped = false;
 
+  for (const char of value) {
+    if (escaped) {
+      if (char === ",") {
+        current += ",";
+      } else {
+        current += `\\${char}`;
+      }
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === ",") {
+      result.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaped) {
+    current += "\\";
+  }
+
+  result.push(current);
+  return result;
+};
+
+const parseRegexList = (name: string, value: string | undefined, fallback: string[]): string[] => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue || /^(none|off|false|disable)$/i.test(trimmedValue)) {
+    return [];
+  }
+
+  let patternsRaw: string[] = [];
+  if (trimmedValue.startsWith("[") && trimmedValue.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmedValue);
+      if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+        throw new Error("JSON array must contain only string regex patterns.");
+      }
+      patternsRaw = parsed;
+    } catch (error) {
+      throw new ConfigError(
+        `${name} JSON parsing failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } else if (trimmedValue.includes("\n")) {
+    patternsRaw = trimmedValue.split(/\r?\n/);
+  } else {
+    patternsRaw = splitByUnescapedComma(trimmedValue);
+  }
+
+  const patterns = patternsRaw.map((item) => item.trim()).filter((item) => item.length > 0);
   if (patterns.length === 0) {
-    throw new ConfigError(`${name} must contain at least one regex pattern.`);
+    return [];
   }
 
   for (const pattern of patterns) {
     try {
       // Validate regex patterns at config load time for faster feedback.
       // eslint-disable-next-line no-new
-      new RegExp(pattern);
+      new RegExp(pattern, "i");
     } catch (error) {
       throw new ConfigError(
         `${name} contains an invalid regex pattern "${pattern}": ${

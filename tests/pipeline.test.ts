@@ -190,6 +190,57 @@ describe("RefactorPipeline", () => {
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
   });
 
+  it("returns model_failure when partial chunk failures occur and no usable patches exist", async () => {
+    const deps = buildDependencies();
+    const extract = deps.diffExtractor.extract as ReturnType<typeof vi.fn>;
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+
+    extract.mockResolvedValueOnce({
+      baseSha: "abc123",
+      headSha: "def456",
+      changedFiles: ["src/index.ts", "src/other.ts"],
+      excludedFiles: [],
+      fullDiff: "diff --git a/src/index.ts b/src/index.ts",
+      chunks: [
+        {
+          files: ["src/index.ts"],
+          snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+          diff: "diff --git a/src/index.ts b/src/index.ts"
+        },
+        {
+          files: ["src/other.ts"],
+          snapshots: [{ path: "src/other.ts", content: "const b=1;\n" }],
+          diff: "diff --git a/src/other.ts b/src/other.ts"
+        }
+      ]
+    });
+
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 1,
+      failureBreakdown: {
+        timeout: 1,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "model_failure",
+      modelFailureSubtype: "timeout",
+      failedChunks: 1,
+      totalChunks: 2
+    });
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
   it("creates branch and PR when MiniMax returns a valid patch", async () => {
     const deps = buildDependencies();
     const pipeline = new RefactorPipeline(deps);

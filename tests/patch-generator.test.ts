@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { MinimaxOutputValidationError } from "../src/ai/minimax-agent";
+import { OpenRouterError } from "../src/ai/openrouter-client";
 import { PatchGenerator } from "../src/core/patch-generator";
 
 const logger = {
@@ -60,7 +62,9 @@ describe("PatchGenerator", () => {
 
   it("classifies invalid diff output failures", async () => {
     const agent = {
-      generatePatch: vi.fn().mockRejectedValue(new Error("MiniMax output is not a valid unified diff")),
+      generatePatch: vi
+        .fn()
+        .mockRejectedValue(new MinimaxOutputValidationError("MiniMax output is not a valid unified diff")),
       repairPatch: vi.fn()
     };
 
@@ -75,5 +79,26 @@ describe("PatchGenerator", () => {
     expect(result.patches).toHaveLength(0);
     expect(result.failedChunks).toBe(1);
     expect(result.failureBreakdown.invalid_output).toBe(1);
+  });
+
+  it("classifies OpenRouter HTTP failures as api_error", async () => {
+    const agent = {
+      generatePatch: vi
+        .fn()
+        .mockRejectedValue(new OpenRouterError("OpenRouter request failed with status 500", 500, "boom")),
+      repairPatch: vi.fn()
+    };
+
+    const generator = new PatchGenerator(agent as never, logger);
+    const result = await generator.generate({
+      repository: "acme/repo",
+      baseRef: "abc",
+      headRef: "def",
+      chunks: buildChunks().slice(0, 1)
+    });
+
+    expect(result.patches).toHaveLength(0);
+    expect(result.failedChunks).toBe(1);
+    expect(result.failureBreakdown.api_error).toBe(1);
   });
 });

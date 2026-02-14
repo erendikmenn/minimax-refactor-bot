@@ -268,9 +268,9 @@ export class RefactorPipeline {
       });
     }
 
-    if (patchResult.failedChunks === diffContext.chunks.length) {
+    if (patchResult.failedChunks > 0 && patchResult.patches.length === 0) {
       const modelFailureSubtype = deriveModelFailureSubtype(patchResult.failureBreakdown);
-      logger.warn("MiniMax generation failed for all chunks, skipping PR creation", {
+      logger.warn("No usable patches generated and model failures occurred, skipping PR creation", {
         modelFailureSubtype,
         failedChunks: patchResult.failedChunks,
         totalChunks: diffContext.chunks.length
