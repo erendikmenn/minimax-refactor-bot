@@ -11,6 +11,7 @@ const baseConfig: BotConfig = {
   maxFilesPerChunk: 1,
   timeoutMs: 1000,
   watchPollIntervalMs: 1000,
+  fileExcludePatterns: ["(^|/)package-lock\\.json$"],
   repository: "acme/project",
   baseBranch: "main",
   eventPath: "/tmp/event.json",
@@ -39,6 +40,7 @@ const buildDependencies = (): PipelineDependencies => ({
       baseSha: "abc123",
       headSha: "def456",
       changedFiles: ["src/index.ts"],
+      excludedFiles: [],
       fullDiff: "diff --git a/src/index.ts b/src/index.ts",
       chunks: [
         {
@@ -82,7 +84,14 @@ const buildDependencies = (): PipelineDependencies => ({
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     }),
     repairPatch: vi.fn().mockResolvedValue(null)
   },
@@ -131,13 +140,103 @@ describe("RefactorPipeline", () => {
   it("skips PR creation when MiniMax reports no patch", async () => {
     const deps = buildDependencies();
     const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
-    generate.mockResolvedValueOnce({ patches: [], skippedChunks: 1 });
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
 
     const pipeline = new RefactorPipeline(deps);
     const result = await pipeline.run();
 
     expect(result).toEqual({ status: "skipped", reason: "no_patch" });
     expect(deps.applyEngine.applyUnifiedDiff).not.toHaveBeenCalled();
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+    expect(deps.prCreator.create).not.toHaveBeenCalled();
+  });
+
+  it("returns model_failure when all chunks fail at generation stage", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 0,
+      failedChunks: 1,
+      failureBreakdown: {
+        timeout: 1,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "model_failure",
+      modelFailureSubtype: "timeout",
+      failedChunks: 1,
+      totalChunks: 1
+    });
+    expect(deps.applyEngine.applyUnifiedDiff).not.toHaveBeenCalled();
+    expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
+  });
+
+  it("returns model_failure when partial chunk failures occur and no usable patches exist", async () => {
+    const deps = buildDependencies();
+    const extract = deps.diffExtractor.extract as ReturnType<typeof vi.fn>;
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+
+    extract.mockResolvedValueOnce({
+      baseSha: "abc123",
+      headSha: "def456",
+      changedFiles: ["src/index.ts", "src/other.ts"],
+      excludedFiles: [],
+      fullDiff: "diff --git a/src/index.ts b/src/index.ts",
+      chunks: [
+        {
+          files: ["src/index.ts"],
+          snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+          diff: "diff --git a/src/index.ts b/src/index.ts"
+        },
+        {
+          files: ["src/other.ts"],
+          snapshots: [{ path: "src/other.ts", content: "const b=1;\n" }],
+          diff: "diff --git a/src/other.ts b/src/other.ts"
+        }
+      ]
+    });
+
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 1,
+      failureBreakdown: {
+        timeout: 1,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "model_failure",
+      modelFailureSubtype: "timeout",
+      failedChunks: 1,
+      totalChunks: 2
+    });
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
     expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
@@ -285,7 +384,14 @@ describe("RefactorPipeline", () => {
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     });
 
     repairPatch.mockResolvedValueOnce(
@@ -306,6 +412,66 @@ describe("RefactorPipeline", () => {
     expect(result.status).toBe("created");
     expect(repairPatch).toHaveBeenCalledTimes(1);
     expect(applyPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips source patch when repaired patch keeps touching files outside chunk scope", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+
+    generate.mockResolvedValueOnce({
+      patches: [
+        {
+          patch: [
+            "diff --git a/src/other.ts b/src/other.ts",
+            "--- a/src/other.ts",
+            "+++ b/src/other.ts",
+            "@@ -1 +1 @@",
+            "-const b=1;",
+            "+const b = 1;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
+      ],
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    repairPatch.mockResolvedValue(
+      [
+        "diff --git a/src/other.ts b/src/other.ts",
+        "--- a/src/other.ts",
+        "+++ b/src/other.ts",
+        "@@ -1 +1 @@",
+        "-const b=1;",
+        "+const b = 1;"
+      ].join("\n")
+    );
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    expect(repairPatch).toHaveBeenCalledTimes(2);
+    expect(applyPatch).not.toHaveBeenCalled();
   });
 
   it("skips source patch when behavior guard rejects semantic token changes", async () => {
@@ -339,7 +505,14 @@ describe("RefactorPipeline", () => {
           }
         }
       ],
-      skippedChunks: 0
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
     });
     repairPatch.mockResolvedValue(null);
 
