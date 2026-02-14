@@ -354,7 +354,11 @@ export class RefactorPipeline {
         }
 
         if (!applySucceeded) {
-          if (lastError.startsWith("Behavior guard blocked patch") || lastError === "MiniMax repair did not produce a patch") {
+          if (
+            lastError.startsWith("Behavior guard blocked patch") ||
+            lastError.startsWith("Patch touched files outside chunk scope") ||
+            lastError === "MiniMax repair did not produce a patch"
+          ) {
             logger.info("Skipping patch after behavior guard/retry evaluation", { reason: lastError });
             continue;
           }

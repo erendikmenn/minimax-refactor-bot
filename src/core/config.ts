@@ -92,7 +92,11 @@ const parseRegexList = (name: string, value: string | undefined, fallback: strin
   }
 
   const trimmedValue = value.trim();
-  if (!trimmedValue || /^(none|off|false|disable)$/i.test(trimmedValue)) {
+  if (!trimmedValue) {
+    return fallback;
+  }
+
+  if (/^(none|off|false|disable)$/i.test(trimmedValue)) {
     return [];
   }
 

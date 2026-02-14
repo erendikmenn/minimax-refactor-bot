@@ -414,6 +414,66 @@ describe("RefactorPipeline", () => {
     expect(applyPatch).toHaveBeenCalledTimes(1);
   });
 
+  it("skips source patch when repaired patch keeps touching files outside chunk scope", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+
+    generate.mockResolvedValueOnce({
+      patches: [
+        {
+          patch: [
+            "diff --git a/src/other.ts b/src/other.ts",
+            "--- a/src/other.ts",
+            "+++ b/src/other.ts",
+            "@@ -1 +1 @@",
+            "-const b=1;",
+            "+const b = 1;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
+      ],
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    repairPatch.mockResolvedValue(
+      [
+        "diff --git a/src/other.ts b/src/other.ts",
+        "--- a/src/other.ts",
+        "+++ b/src/other.ts",
+        "@@ -1 +1 @@",
+        "-const b=1;",
+        "+const b = 1;"
+      ].join("\n")
+    );
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    expect(repairPatch).toHaveBeenCalledTimes(2);
+    expect(applyPatch).not.toHaveBeenCalled();
+  });
+
   it("skips source patch when behavior guard rejects semantic token changes", async () => {
     const deps = buildDependencies();
     const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;

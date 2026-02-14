@@ -10,13 +10,24 @@ const baseEnv = {
 } as NodeJS.ProcessEnv;
 
 describe("loadConfig FILE_EXCLUDE_PATTERNS", () => {
-  it("allows disabling exclusion with whitespace-only value", () => {
+  it("uses default patterns when FILE_EXCLUDE_PATTERNS is an empty string", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      FILE_EXCLUDE_PATTERNS: ""
+    });
+
+    expect(config.fileExcludePatterns).toContain("(^|/)package-lock\\.json$");
+    expect(config.fileExcludePatterns.length).toBeGreaterThan(0);
+  });
+
+  it("uses default patterns when FILE_EXCLUDE_PATTERNS is whitespace", () => {
     const config = loadConfig({
       ...baseEnv,
       FILE_EXCLUDE_PATTERNS: "   "
     });
 
-    expect(config.fileExcludePatterns).toEqual([]);
+    expect(config.fileExcludePatterns).toContain("(^|/)package-lock\\.json$");
+    expect(config.fileExcludePatterns.length).toBeGreaterThan(0);
   });
 
   it("allows disabling exclusion with sentinel value", () => {

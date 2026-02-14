@@ -35,7 +35,7 @@ flowchart LR
 7. If apply fails, bot asks MiniMax for a repaired patch (up to `PATCH_REPAIR_ATTEMPTS`).
 8. Bot runs tests (`TEST_COMMAND`, default `npm test`).
 9. If tests pass and changes exist, bot creates branch + commit + PR.
-10. If one chunk fails at model stage (timeout/invalid output), other chunks continue; only all-chunk failure causes model-level skip.
+10. If one or more chunks fail at model stage (timeout/invalid output), other chunks continue; if no usable patch remains, run is marked as `model_failure`.
 11. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
 
 ### Project Layout
@@ -90,7 +90,7 @@ Optional:
 - `TIMEOUT_MS` (default: `30000`)
 - `MAX_RETRIES` (default: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (default: `2`)
-- `FILE_EXCLUDE_PATTERNS` (default excludes lockfiles, build outputs, and common binary assets; accepts JSON array, newline list, or comma-separated list with escaped commas `\,`; set to `none` to disable all exclusion)
+- `FILE_EXCLUDE_PATTERNS` (default excludes lockfiles, build outputs, and common binary assets; empty/unset uses defaults; accepts JSON array, newline list, or comma-separated list with escaped commas `\,`; set to `none` to disable all exclusion; for GitHub Actions Variables, prefer JSON array format)
 - `BEHAVIOR_GUARD_MODE` (`strict` by default, set `off` to disable)
 - `TEST_COMMAND` (default: `npm test`)
 - `WATCH_POLL_INTERVAL_MS` (default: `30000`)
@@ -156,7 +156,7 @@ Yukarıdaki diyagram aynı şekilde Türkçe akış için de geçerlidir.
 7. Apply başarısız olursa bot, `PATCH_REPAIR_ATTEMPTS` kadar MiniMax'tan onarım patch’i ister.
 8. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
 9. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
-10. Model aşamasında bir chunk timeout/geçersiz çıktı alsa bile diğer chunk’lar devam eder; tüm chunk’lar fail olursa model-level skip olur.
+10. Model aşamasında bir veya daha fazla chunk timeout/geçersiz çıktı alsa bile diğer chunk’lar devam eder; kullanılabilir patch kalmazsa sonuç `model_failure` olur.
 11. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
 
 ### Kurulum
@@ -190,7 +190,7 @@ Opsiyonel:
 - `TIMEOUT_MS` (varsayılan: `30000`)
 - `MAX_RETRIES` (varsayılan: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
-- `FILE_EXCLUDE_PATTERNS` (varsayılan olarak lockfile, build çıktıları ve yaygın binary dosyaları dışlar; JSON array, satır listesi veya `\,` kaçışlı virgül listesi kabul eder; tüm dışlamayı kapatmak için `none` kullanın)
+- `FILE_EXCLUDE_PATTERNS` (varsayılan olarak lockfile, build çıktıları ve yaygın binary dosyaları dışlar; boş/değer verilmemişse varsayılanlar kullanılır; JSON array, satır listesi veya `\,` kaçışlı virgül listesi kabul eder; tüm dışlamayı kapatmak için `none` kullanın; GitHub Actions Variables için JSON array formatını tercih edin)
 - `BEHAVIOR_GUARD_MODE` (varsayılan `strict`, kapatmak için `off`)
 - `TEST_COMMAND` (varsayılan: `npm test`)
 - `WATCH_POLL_INTERVAL_MS` (varsayılan: `30000`)
