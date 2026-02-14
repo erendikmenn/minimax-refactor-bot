@@ -88,6 +88,7 @@ export type PipelineResult =
       branchName: string;
       pullRequestUrl: string;
       files: string[];
+      changeSummary: string;
     };
 
 const parseRepository = (repository: string): { owner: string; repo: string } => {
@@ -325,6 +326,7 @@ export class RefactorPipeline {
     }
 
     const files = await applyEngine.listStagedFiles();
+    const changeSummary = (await executor.run("git", ["diff", "--cached", "--shortstat"])).trim() || "staged changes";
     const branchName = `refactor/minimax-${timestampForBranch()}`;
     await branchManager.configureIdentity({
       name: process.env.GIT_AUTHOR_NAME ?? "minimax-refactor-bot",
@@ -353,7 +355,8 @@ export class RefactorPipeline {
       status: "created",
       branchName,
       pullRequestUrl: pullRequest.url,
-      files
+      files,
+      changeSummary
     };
   }
 }

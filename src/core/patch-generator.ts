@@ -38,10 +38,11 @@ export class PatchGenerator {
   public async generate(input: PatchGenerationInput): Promise<PatchGenerationResult> {
     const patches: Array<{ patch: string; chunk: DiffChunk }> = [];
     let skippedChunks = 0;
+    const totalChunks = input.chunks.length;
 
     for (const [index, chunk] of input.chunks.entries()) {
-      this.logger.info("Requesting MiniMax patch for chunk", {
-        chunkIndex: index,
+      this.logger.info("Requesting MiniMax patch", {
+        chunk: `${index + 1}/${totalChunks}`,
         fileCount: chunk.files.length,
         diffSize: chunk.diff.length
       });
@@ -56,10 +57,17 @@ export class PatchGenerator {
       });
 
       if (result.status === "no_changes") {
+        this.logger.info("MiniMax returned NO_CHANGES_NEEDED for chunk", {
+          chunk: `${index + 1}/${totalChunks}`
+        });
         skippedChunks += 1;
         continue;
       }
 
+      this.logger.info("MiniMax returned patch for chunk", {
+        chunk: `${index + 1}/${totalChunks}`,
+        patchSize: result.patch.length
+      });
       patches.push({ patch: result.patch, chunk });
     }
 
