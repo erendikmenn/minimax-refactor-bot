@@ -29,6 +29,12 @@ const buildChunks = () => [
   }
 ];
 
+const defaultGenerateOptions = {
+  repository: "acme/repo",
+  baseRef: "abc",
+  headRef: "def"
+};
+
 describe("PatchGenerator", () => {
   it("continues processing other chunks when one chunk generation fails", async () => {
     const agent = {
@@ -45,12 +51,7 @@ describe("PatchGenerator", () => {
     };
 
     const generator = new PatchGenerator(agent as never, logger);
-    const result = await generator.generate({
-      repository: "acme/repo",
-      baseRef: "abc",
-      headRef: "def",
-      chunks: buildChunks()
-    });
+    const result = await generator.generate({ ...defaultGenerateOptions, chunks: buildChunks() });
 
     expect(result.patches).toHaveLength(1);
     expect(result.skippedChunks).toBe(1);
@@ -69,12 +70,7 @@ describe("PatchGenerator", () => {
     };
 
     const generator = new PatchGenerator(agent as never, logger);
-    const result = await generator.generate({
-      repository: "acme/repo",
-      baseRef: "abc",
-      headRef: "def",
-      chunks: buildChunks().slice(0, 1)
-    });
+    const result = await generator.generate({ ...defaultGenerateOptions, chunks: buildChunks().slice(0, 1) });
 
     expect(result.patches).toHaveLength(0);
     expect(result.failedChunks).toBe(1);
@@ -90,12 +86,7 @@ describe("PatchGenerator", () => {
     };
 
     const generator = new PatchGenerator(agent as never, logger);
-    const result = await generator.generate({
-      repository: "acme/repo",
-      baseRef: "abc",
-      headRef: "def",
-      chunks: buildChunks().slice(0, 1)
-    });
+    const result = await generator.generate({ ...defaultGenerateOptions, chunks: buildChunks().slice(0, 1) });
 
     expect(result.patches).toHaveLength(0);
     expect(result.failedChunks).toBe(1);

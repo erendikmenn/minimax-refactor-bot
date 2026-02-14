@@ -67,19 +67,18 @@ describe("GitDiffExtractor", () => {
   });
 
   it("returns null when only excluded files changed", async () => {
-    const executor: CommandExecutor = {
-      run: async (command, args) => {
-        if (command !== "git") {
-          throw new Error("Unexpected command");
-        }
-
-        if (args[0] === "diff" && args[1] === "--name-only") {
-          return "package-lock.json\n";
-        }
-
-        throw new Error(`Unexpected git args: ${args.join(" ")}`);
+    const executor = new FakeExecutor();
+    executor.run = async (command, args): Promise<string> => {
+      if (command !== "git") {
+        throw new Error("Unexpected command");
       }
-    };
+
+      if (args[0] === "diff" && args[1] === "--name-only") {
+        return "package-lock.json\n";
+      }
+
+      throw new Error(`Unexpected git args: ${args.join(" ")}`);
+      }
 
     const extractor = new GitDiffExtractor(executor, 10000, 1, ["(^|/)package-lock\\.json$"]);
     const result = await extractor.extract("base", "head");
