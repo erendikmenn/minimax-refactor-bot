@@ -276,7 +276,7 @@ describe("RefactorPipeline", () => {
     extract.mockResolvedValueOnce({
       baseSha: "abc123",
       headSha: "def456",
-      changedFiles: ["src/index.ts", "test/index.test.js"],
+      changedFiles: ["src/index.ts", "test/index.test.tsx"],
       excludedFiles: [],
       fullDiff: "diff --git a/src/index.ts b/src/index.ts",
       chunks: [
@@ -286,9 +286,9 @@ describe("RefactorPipeline", () => {
           diff: "diff --git a/src/index.ts b/src/index.ts"
         },
         {
-          files: ["test/index.test.js"],
-          snapshots: [{ path: "test/index.test.js", content: "test('x',()=>{});\n" }],
-          diff: "diff --git a/test/index.test.js b/test/index.test.js"
+          files: ["test/index.test.tsx"],
+          snapshots: [{ path: "test/index.test.tsx", content: "test('x',()=>{});\n" }],
+          diff: "diff --git a/test/index.test.tsx b/test/index.test.tsx"
         }
       ]
     });
@@ -311,7 +311,54 @@ describe("RefactorPipeline", () => {
     expect(result).toEqual({ status: "skipped", reason: "no_patch" });
     const generateArgs = generate.mock.calls[0]?.[0] as { chunks: Array<{ files: string[] }> };
     expect(generateArgs.chunks).toHaveLength(1);
-    expect(generateArgs.chunks[0]?.files).toEqual(["test/index.test.js"]);
+    expect(generateArgs.chunks[0]?.files).toEqual(["test/index.test.tsx"]);
+  });
+
+  it("prioritizes source chunks over unknown file types in strict mode", async () => {
+    const deps = buildDependencies();
+    deps.config.maxChunksPerRun = 1;
+    const extract = deps.diffExtractor.extract as ReturnType<typeof vi.fn>;
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+
+    extract.mockResolvedValueOnce({
+      baseSha: "abc123",
+      headSha: "def456",
+      changedFiles: ["assets/logo.svg", "src/index.ts"],
+      excludedFiles: [],
+      fullDiff: "diff --git a/assets/logo.svg b/assets/logo.svg",
+      chunks: [
+        {
+          files: ["assets/logo.svg"],
+          snapshots: [{ path: "assets/logo.svg", content: "<svg />\n" }],
+          diff: "diff --git a/assets/logo.svg b/assets/logo.svg"
+        },
+        {
+          files: ["src/index.ts"],
+          snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+          diff: "diff --git a/src/index.ts b/src/index.ts"
+        }
+      ]
+    });
+
+    generate.mockResolvedValueOnce({
+      patches: [],
+      skippedChunks: 1,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    const generateArgs = generate.mock.calls[0]?.[0] as { chunks: Array<{ files: string[] }> };
+    expect(generateArgs.chunks).toHaveLength(1);
+    expect(generateArgs.chunks[0]?.files).toEqual(["src/index.ts"]);
   });
 
   it("writes detailed PR body with rationale, safety checks, and run cost", async () => {
@@ -340,6 +387,33 @@ describe("RefactorPipeline", () => {
     expect(prCreateCall.body).toContain("## Safety Checks");
     expect(prCreateCall.body).toContain("## Run Cost");
     expect(prCreateCall.body).toContain("Cost: $0.001200");
+  });
+
+  it("avoids misleading impact text when tests and unknown file types are both changed", async () => {
+    const deps = buildDependencies();
+    const listStagedFiles = deps.applyEngine.listStagedFiles as ReturnType<typeof vi.fn>;
+    const runCommand = deps.executor.run as ReturnType<typeof vi.fn>;
+
+    listStagedFiles.mockResolvedValueOnce(["test/x.test.js", "scripts/deploy.sh"]);
+    runCommand.mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes("--shortstat")) {
+        return "2 files changed, 8 insertions(+), 2 deletions(-)";
+      }
+      if (args.includes("--numstat")) {
+        return ["5\t1\ttest/x.test.js", "3\t1\tscripts/deploy.sh"].join("\n");
+      }
+      return "";
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result.status).toBe("created");
+    const prCreateCall = (deps.prCreator.create as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      body: string;
+    };
+    expect(prCreateCall.body).not.toContain("only tests/docs/config were changed");
+    expect(prCreateCall.body).toContain("tests plus non-source supporting files");
   });
 
   it("repairs patch and still creates branch/PR when first apply fails", async () => {
@@ -440,7 +514,7 @@ describe("RefactorPipeline", () => {
     expect(deps.prCreator.create).not.toHaveBeenCalled();
   });
 
-  it("repairs patch when model touches files outside chunk scope", async () => {
+  it("skips unauthorized-file patch without requesting repair", async () => {
     const deps = buildDependencies();
     const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
     const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
@@ -480,84 +554,61 @@ describe("RefactorPipeline", () => {
         unknown: 0
       }
     });
-
-    repairPatch.mockResolvedValueOnce(
-      [
-        "diff --git a/src/index.ts b/src/index.ts",
-        "--- a/src/index.ts",
-        "+++ b/src/index.ts",
-        "@@ -1 +1 @@",
-        "-const a=1;",
-        "+const a = 1;"
-      ].join("\n")
-    );
-    applyPatch.mockResolvedValue(undefined);
-
-    const pipeline = new RefactorPipeline(deps);
-    const result = await pipeline.run();
-
-    expect(result.status).toBe("created");
-    expect(repairPatch).toHaveBeenCalledTimes(1);
-    expect(applyPatch).toHaveBeenCalledTimes(1);
-  });
-
-  it("skips source patch when repaired patch keeps touching files outside chunk scope", async () => {
-    const deps = buildDependencies();
-    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
-    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
-    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
-
-    generate.mockResolvedValueOnce({
-      patches: [
-        {
-          patch: [
-            "diff --git a/src/other.ts b/src/other.ts",
-            "--- a/src/other.ts",
-            "+++ b/src/other.ts",
-            "@@ -1 +1 @@",
-            "-const b=1;",
-            "+const b = 1;"
-          ].join("\n"),
-          chunk: {
-            files: ["src/index.ts"],
-            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
-            diff: [
-              "diff --git a/src/index.ts b/src/index.ts",
-              "--- a/src/index.ts",
-              "+++ b/src/index.ts",
-              "@@ -1 +1 @@",
-              "-const a=1;",
-              "+const a = 1;"
-            ].join("\n")
-          }
-        }
-      ],
-      skippedChunks: 0,
-      failedChunks: 0,
-      failureBreakdown: {
-        timeout: 0,
-        invalid_output: 0,
-        api_error: 0,
-        unknown: 0
-      }
-    });
-
-    repairPatch.mockResolvedValue(
-      [
-        "diff --git a/src/other.ts b/src/other.ts",
-        "--- a/src/other.ts",
-        "+++ b/src/other.ts",
-        "@@ -1 +1 @@",
-        "-const b=1;",
-        "+const b = 1;"
-      ].join("\n")
-    );
 
     const pipeline = new RefactorPipeline(deps);
     const result = await pipeline.run();
 
     expect(result).toEqual({ status: "skipped", reason: "no_patch" });
-    expect(repairPatch).toHaveBeenCalledTimes(2);
+    expect(repairPatch).not.toHaveBeenCalled();
+    expect(applyPatch).not.toHaveBeenCalled();
+  });
+
+  it("skips source patch when scope guard blocks patch", async () => {
+    const deps = buildDependencies();
+    const generate = deps.patchGenerator.generate as ReturnType<typeof vi.fn>;
+    const repairPatch = deps.patchGenerator.repairPatch as ReturnType<typeof vi.fn>;
+    const applyPatch = deps.applyEngine.applyUnifiedDiff as ReturnType<typeof vi.fn>;
+
+    generate.mockResolvedValueOnce({
+      patches: [
+        {
+          patch: [
+            "diff --git a/src/other.ts b/src/other.ts",
+            "--- a/src/other.ts",
+            "+++ b/src/other.ts",
+            "@@ -1 +1 @@",
+            "-const b=1;",
+            "+const b = 1;"
+          ].join("\n"),
+          chunk: {
+            files: ["src/index.ts"],
+            snapshots: [{ path: "src/index.ts", content: "const a=1;\n" }],
+            diff: [
+              "diff --git a/src/index.ts b/src/index.ts",
+              "--- a/src/index.ts",
+              "+++ b/src/index.ts",
+              "@@ -1 +1 @@",
+              "-const a=1;",
+              "+const a = 1;"
+            ].join("\n")
+          }
+        }
+      ],
+      skippedChunks: 0,
+      failedChunks: 0,
+      failureBreakdown: {
+        timeout: 0,
+        invalid_output: 0,
+        api_error: 0,
+        unknown: 0
+      }
+    });
+
+    const pipeline = new RefactorPipeline(deps);
+    const result = await pipeline.run();
+
+    expect(result).toEqual({ status: "skipped", reason: "no_patch" });
+    expect(repairPatch).not.toHaveBeenCalled();
     expect(applyPatch).not.toHaveBeenCalled();
   });
 
@@ -607,7 +658,7 @@ describe("RefactorPipeline", () => {
     const result = await pipeline.run();
 
     expect(result).toEqual({ status: "skipped", reason: "no_patch" });
-    expect(repairPatch).toHaveBeenCalledTimes(1);
+    expect(repairPatch).not.toHaveBeenCalled();
     expect(applyPatch).not.toHaveBeenCalled();
     expect(deps.branchManager.createBranch).not.toHaveBeenCalled();
   });

@@ -250,14 +250,11 @@ const getExtension = (filePath: string): string => {
 
 const isTestFilePath = (filePath: string): boolean => {
   const normalized = filePath.toLowerCase();
-  return (
-    normalized.includes("/test/") ||
-    normalized.includes("/tests/") ||
-    normalized.endsWith(".test.ts") ||
-    normalized.endsWith(".test.js") ||
-    normalized.endsWith(".spec.ts") ||
-    normalized.endsWith(".spec.js")
-  );
+  if (normalized.includes("/test/") || normalized.includes("/tests/")) {
+    return true;
+  }
+
+  return /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/.test(normalized);
 };
 
 const isDocFilePath = (filePath: string): boolean => {
@@ -308,7 +305,7 @@ const scoreFileForSelection = (filePath: string, behaviorGuardMode: "strict" | "
     return 70;
   }
 
-  return 50;
+  return 30;
 };
 
 const scoreChunkForSelection = (chunk: DiffChunk, behaviorGuardMode: "strict" | "off"): number => {
@@ -367,11 +364,21 @@ const inferImpactNotes = (files: string[]): string[] => {
   const hasSource = files.some((file) => isSourceFilePath(file) && !isTestFilePath(file));
   const hasTests = files.some((file) => isTestFilePath(file));
   const hasDocsOrConfig = files.some((file) => isDocFilePath(file) || isConfigFilePath(file));
+  const hasOnlyTestDocConfig = files.every(
+    (file) => isTestFilePath(file) || isDocFilePath(file) || isConfigFilePath(file)
+  );
 
-  if (!hasSource && hasTests) {
+  if (!hasSource && hasTests && hasOnlyTestDocConfig) {
     return [
       "Runtime behavior risk is low because only tests/docs/config were changed.",
       "Primary value is readability and maintainability of supporting files."
+    ];
+  }
+
+  if (!hasSource && hasTests) {
+    return [
+      "Changes include tests plus non-source supporting files; runtime behavior risk is still low.",
+      "Primary value is readability and maintainability, but review non-standard file types carefully."
     ];
   }
 
@@ -626,6 +633,15 @@ export class RefactorPipeline {
           } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
 
+            if (lastError.startsWith("Behavior guard blocked patch")) {
+              patchStats.behaviorGuardBlocked += 1;
+              break;
+            }
+            if (lastError.startsWith("Patch touched files outside chunk scope")) {
+              patchStats.scopeGuardBlocked += 1;
+              break;
+            }
+
             if (attempt === config.patchRepairAttempts) {
               break;
             }
@@ -662,12 +678,6 @@ export class RefactorPipeline {
             lastError.startsWith("Patch touched files outside chunk scope") ||
             lastError === "MiniMax repair did not produce a patch"
           ) {
-            if (lastError.startsWith("Behavior guard blocked patch")) {
-              patchStats.behaviorGuardBlocked += 1;
-            }
-            if (lastError.startsWith("Patch touched files outside chunk scope")) {
-              patchStats.scopeGuardBlocked += 1;
-            }
             logger.info("Skipping patch after behavior guard/retry evaluation", { reason: lastError });
             continue;
           }
