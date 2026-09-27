@@ -101,4 +101,21 @@ describe("PatchGenerator", () => {
     expect(result.failedChunks).toBe(1);
     expect(result.failureBreakdown.api_error).toBe(1);
   });
+
+  it.each([401, 402, 403])("fails the run on permanent OpenRouter status %i", async (status) => {
+    const error = new OpenRouterError(`OpenRouter request failed with status ${status}`, status, "");
+    const agent = {
+      generatePatch: vi.fn().mockRejectedValue(error),
+      repairPatch: vi.fn()
+    };
+
+    const generator = new PatchGenerator(agent as never, logger);
+    await expect(generator.generate({
+      repository: "acme/repo",
+      baseRef: "abc",
+      headRef: "def",
+      chunks: buildChunks()
+    })).rejects.toBe(error);
+    expect(agent.generatePatch).toHaveBeenCalledTimes(1);
+  });
 });

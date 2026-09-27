@@ -102,6 +102,12 @@ export class PatchGenerator {
           snapshots: chunk.snapshots
         });
       } catch (error) {
+        // Authentication, payment, and configuration errors affect every chunk.
+        // Failing the run keeps a broken integration visible in CI.
+        if (error instanceof OpenRouterError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+          throw error;
+        }
+
         const failureType = classifyChunkFailure(error);
         failureBreakdown[failureType] += 1;
         failedChunks += 1;
