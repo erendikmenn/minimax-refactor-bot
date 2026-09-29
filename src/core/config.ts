@@ -6,6 +6,7 @@ export interface BotConfig {
   modelName: string;
   maxDiffSize: number;
   maxFilesPerChunk: number;
+  maxChunksPerRun: number;
   timeoutMs: number;
   watchPollIntervalMs: number;
   fileExcludePatterns: string[];
@@ -156,7 +157,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     githubToken: requireEnv("GITHUB_TOKEN", env),
     modelName: env.MODEL_NAME?.trim() || "minimax/minimax-m2.5",
     maxDiffSize: parsePositiveInt("MAX_DIFF_SIZE", env.MAX_DIFF_SIZE, 80000),
-    maxFilesPerChunk: parsePositiveInt("MAX_FILES_PER_CHUNK", env.MAX_FILES_PER_CHUNK, 1),
+    maxFilesPerChunk: parsePositiveInt("MAX_FILES_PER_CHUNK", env.MAX_FILES_PER_CHUNK, 4),
+    maxChunksPerRun: parsePositiveInt("MAX_CHUNKS_PER_RUN", env.MAX_CHUNKS_PER_RUN, 20),
     timeoutMs: parsePositiveInt("TIMEOUT_MS", env.TIMEOUT_MS, 30000),
     watchPollIntervalMs: parsePositiveInt("WATCH_POLL_INTERVAL_MS", env.WATCH_POLL_INTERVAL_MS, 30000),
     fileExcludePatterns: parseRegexList(
@@ -177,6 +179,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env, logger?: Logger
     modelName: config.modelName,
     maxDiffSize: config.maxDiffSize,
     maxFilesPerChunk: config.maxFilesPerChunk,
+    maxChunksPerRun: config.maxChunksPerRun,
     timeoutMs: config.timeoutMs,
     watchPollIntervalMs: config.watchPollIntervalMs,
     fileExcludePatterns: config.fileExcludePatterns.length,

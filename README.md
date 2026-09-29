@@ -36,7 +36,8 @@ flowchart LR
 8. Bot runs tests (`TEST_COMMAND`, default `npm test`).
 9. If tests pass and changes exist, bot creates branch + commit + PR.
 10. If one or more chunks fail at model stage (timeout/invalid output), other chunks continue; if no usable patch remains, run is marked as `model_failure`.
-11. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
+11. Bot prioritizes high-signal chunks (tests/docs first) and can cap analyzed chunks with `MAX_CHUNKS_PER_RUN`.
+12. Bot prints a final run summary with outcome, token usage, latency, and total OpenRouter cost.
 
 ### Project Layout
 
@@ -86,7 +87,8 @@ Optional:
 
 - `MODEL_NAME` (default: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (default: `80000`)
-- `MAX_FILES_PER_CHUNK` (default: `1`)
+- `MAX_FILES_PER_CHUNK` (default: `4`)
+- `MAX_CHUNKS_PER_RUN` (default: `20`)
 - `TIMEOUT_MS` (default: `30000`)
 - `MAX_RETRIES` (default: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (default: `2`)
@@ -124,10 +126,23 @@ At the end of each run, console output includes:
 - total cost in USD
 - run outcome and value summary
 
+Created PR descriptions also include:
+- why changes were selected
+- exact files and per-file line impact
+- safety checks performed
+- potential impact/risk notes
+- run cost and latency snapshot
+
 ### Cost Expectations
 
 Cost depends on diff size, chunk count, model pricing, and retries. Use `MAX_DIFF_SIZE` to control request size and budget exposure.
 Large generated files (such as lockfiles/build artifacts) are excluded from AI prompts by default to reduce token spend and latency.
+
+### Performance Tuning
+
+- Increase `MAX_FILES_PER_CHUNK` to reduce API call count on large merges.
+- Decrease `MAX_CHUNKS_PER_RUN` to cap worst-case latency/cost per run.
+- Keep `TIMEOUT_MS` moderate (for example `20000-30000`) to avoid long hangs on slow model responses.
 
 ### Safety Rules
 
@@ -157,7 +172,8 @@ Yukarıdaki diyagram aynı şekilde Türkçe akış için de geçerlidir.
 8. Test komutu çalıştırılır (`TEST_COMMAND`, varsayılan `npm test`).
 9. Testler geçerse ve değişiklik varsa branch + commit + PR oluşturulur.
 10. Model aşamasında bir veya daha fazla chunk timeout/geçersiz çıktı alsa bile diğer chunk’lar devam eder; kullanılabilir patch kalmazsa sonuç `model_failure` olur.
-11. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
+11. Bot, yüksek sinyalli chunk'ları (test/dokümantasyon) önceliklendirir ve `MAX_CHUNKS_PER_RUN` ile analiz edilen chunk sayısını sınırlandırabilir.
+12. Çalışma sonunda sonuç, token kullanımı, gecikme ve toplam OpenRouter maliyeti tek bir özet olarak yazdırılır.
 
 ### Kurulum
 
@@ -186,7 +202,8 @@ Opsiyonel:
 
 - `MODEL_NAME` (varsayılan: `minimax/minimax-m2.5`)
 - `MAX_DIFF_SIZE` (varsayılan: `80000`)
-- `MAX_FILES_PER_CHUNK` (varsayılan: `1`)
+- `MAX_FILES_PER_CHUNK` (varsayılan: `4`)
+- `MAX_CHUNKS_PER_RUN` (varsayılan: `20`)
 - `TIMEOUT_MS` (varsayılan: `30000`)
 - `MAX_RETRIES` (varsayılan: `1`)
 - `PATCH_REPAIR_ATTEMPTS` (varsayılan: `2`)
@@ -220,6 +237,7 @@ npx minimax-refactor-bot watch
 - `run` yalnızca bir kez çalışır ve çıkar.
 - `watch` açık kalır, `origin/main` (veya `GITHUB_REF_NAME`) üzerinde yeni commit geldikçe pipeline'ı yeniden çalıştırır.
 - Her çalışmanın sonunda token, maliyet ve sonuç özeti konsolda görünür.
+- Açılan PR açıklaması; neden bu değişikliklerin seçildiği, dosya bazlı etki, güvenlik kontrolleri ve maliyet özetini otomatik içerir.
 
 ### Maliyet ve Güvenlik
 

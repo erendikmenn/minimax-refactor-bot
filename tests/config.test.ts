@@ -57,3 +57,16 @@ describe("loadConfig FILE_EXCLUDE_PATTERNS", () => {
     ).toThrow(ConfigError);
   });
 });
+
+describe("loadConfig performance defaults", () => {
+  it("uses faster chunk defaults when env vars are unset", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      MAX_FILES_PER_CHUNK: "",
+      MAX_CHUNKS_PER_RUN: ""
+    });
+
+    expect(config.maxFilesPerChunk).toBe(4);
+    expect(config.maxChunksPerRun).toBe(20);
+  });
+});

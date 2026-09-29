@@ -166,7 +166,8 @@ const main = async (): Promise<void> => {
     branchManager: new GitBranchManager(executor),
     repoScanner: new GitRepositoryScanner(executor),
     prCreator: new GitHubPullRequestCreator(config.githubToken),
-    executor
+    executor,
+    usageStatsProvider: () => openRouterClient.getUsageStats()
   });
 
   if (command === "run") {
